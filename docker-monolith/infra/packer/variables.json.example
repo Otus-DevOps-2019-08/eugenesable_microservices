@@ -1,0 +1,9 @@
+{
+  "project_id": "some project_id",
+  "source_image_family": "some source_image_family",
+  "disk_size": "10",
+  "disk_type": "some disk_type",
+  "image_description": "some description",
+  "network": "some network",
+  "tag": "some tag"
+}
