@@ -1,0 +1,8 @@
+---
+plugin: gcp_compute
+projects:
+  - docker-******
+service_account_file: ~/.ssh/docker.json
+auth_kind: serviceaccount
+groups:
+  docker: "'docker' in name"

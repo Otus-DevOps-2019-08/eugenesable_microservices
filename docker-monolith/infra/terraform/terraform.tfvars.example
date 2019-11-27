@@ -1,0 +1,6 @@
+project          = "some_project_od"
+public_key_path  = "~/.ssh/appuser.pub"
+disk_image       = "reddit-docker"
+private_key_path = "~/.ssh/appuser"
+instances = 2
+
