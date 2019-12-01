@@ -1,6 +1,85 @@
 # eugenesable_microservices
 eugenesable microservices repository
 
+## Выполнено задание №13 ##
+
+- Ветка docker-3
+- Приложение разделено на 3 компонента. Добавлена папка src/:
+  - post-py - посты
+  - comment - комментарии
+  - ui - веб-интерфейс
+- В каждый сервис добавлены Dockerfil'ы:
+  - post-py/Dockerfile: (пришлось внести изменеия)
+```
+FROM python:3.6.0-alpine
+
+WORKDIR /app
+ADD . /app
+
+RUN pip install -r /app/requirements.txt
+
+ENV POST_DATABASE_HOST post_db
+ENV POST_DATABASE posts
+
+ENTRYPOINT ["python3", "post_app.py"]
+```  
+  - comment/Dockerfile:
+```
+FROM ruby:2.2
+RUN apt-get update -qq && apt-get install -y build-essential
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+WORKDIR $APP_HOME
+
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV COMMENT_DATABASE_HOST comment_db
+ENV COMMENT_DATABASE comments
+
+CMD ["puma"]
+```  
+  - ui/Dockerfile
+```
+FROM ruby:2.2
+RUN apt-get update -qq && apt-get install -y build-essential
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+
+WORKDIR $APP_HOME
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+
+CMD ["puma"]
+```
+- Создана специальная bridge-сеть для прилажения:
+``` docker network create reddit ```
+- Запущены контейнеры:
+```
+docker run -d --network=reddit \
+--network-alias=post_db --network-alias=comment_db mongo:latest
+
+docker run -d --network=reddit \
+--network-alias=post <your-dockerhub-login>/post:1.0
+
+docker run -d --network=reddit \
+--network-alias=comment <your-dockerhub-login>/comment:1.0
+
+docker run -d --network=reddit \
+-p 9292:9292 <your-dockerhub-login>/ui:1.0
+```
+
+
+
 Предварительно склонирован репозиторий ```https://github.com/Otus-DevOps-2019-08/eugenesable_microservices``` для выполнения заданий.
 Настроена отправка сообщений в канал slack по аналогии с предыдущим репозиторием.
 Настроено взаимодействие с travis-ci.
