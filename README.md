@@ -1,6 +1,401 @@
 # eugenesable_microservices
 eugenesable microservices repository
 
+## Выполнено задание №14 ##
+
+- Ветка docker-4
+
+### Работа с сетью ###
+• none
+• host
+• bridge
+- В качестве образа используем joffotron/docker-net-tools:
+Запущен  none network driver
+```docker run -ti --rm --network none joffotron/docker-net-tools -c ifconfig``` 
+```
+lo        Link encap:Local Loopback  
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+```          
+- В результате, видим:
+• что внутри контейнера из сетевых интерфейсов существует только loopback.
+• сетевой стек самого контейнера работает (ping localhost), но без возможности контактировать с внешним миром.
+• Значит, можно даже запускать сетевые сервисы внутри такого контейнера, но лишь для локальных экспериментов (тестирование, контейнеры для выполнения разовых задач и т.д.)
+
+- Запустим контейнер в сетевом пространстве docker-хоста
+```docker run -ti --rm --network host joffotron/docker-net-tools -c ifconfig```
+вывод такой же как и у ```docker-machine ssh docker-host ifconfig```
+```
+br-3fabcbfeff5d Link encap:Ethernet  HWaddr 02:42:67:28:11:9E  
+          inet addr:172.20.0.1  Bcast:172.20.255.255  Mask:255.255.0.0
+          inet6 addr: fe80::42:67ff:fe28:119e%32741/64 Scope:Link
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:14 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:0 (0.0 B)  TX bytes:1076 (1.0 KiB)
+
+br-7a4a39840e4a Link encap:Ethernet  HWaddr 02:42:9C:51:EF:D5  
+          inet addr:172.19.0.1  Bcast:172.19.255.255  Mask:255.255.0.0
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+br-a9b719f3a1b0 Link encap:Ethernet  HWaddr 02:42:EB:59:0F:9F  
+          inet addr:172.18.0.1  Bcast:172.18.255.255  Mask:255.255.0.0
+          inet6 addr: fe80::42:ebff:fe59:f9f%32741/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:3968231 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:3968449 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:302071587 (288.0 MiB)  TX bytes:701874385 (669.3 MiB)
+
+docker0   Link encap:Ethernet  HWaddr 02:42:CA:DF:D6:99  
+          inet addr:172.17.0.1  Bcast:172.17.255.255  Mask:255.255.0.0
+          inet6 addr: fe80::42:caff:fedf:d699%32741/64 Scope:Link
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:38051 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:51249 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:3333985 (3.1 MiB)  TX bytes:1322917475 (1.2 GiB)
+
+ens4      Link encap:Ethernet  HWaddr 42:01:0A:84:00:08  
+          inet addr:10.132.0.8  Bcast:10.132.0.8  Mask:255.255.255.255
+          inet6 addr: fe80::4001:aff:fe84:8%32741/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1460  Metric:1
+          RX packets:4284958 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:4198887 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:3660585041 (3.4 GiB)  TX bytes:382770929 (365.0 MiB)
+
+lo        Link encap:Local Loopback  
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          inet6 addr: ::1%32741/128 Scope:Host
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:500658 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:500658 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:67899853 (64.7 MiB)  TX bytes:67899853 (64.7 MiB)
+
+veth6f7e622 Link encap:Ethernet  HWaddr 0A:5B:AE:27:32:78  
+          inet6 addr: fe80::85b:aeff:fe27:3278%32741/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:214420 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:153348 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:24744112 (23.5 MiB)  TX bytes:17795232 (16.9 MiB)
+
+veth8f35cc4 Link encap:Ethernet  HWaddr 1A:BB:10:37:02:FB  
+          inet6 addr: fe80::18bb:10ff:fe37:2fb%32741/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:321951 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:276068 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:34535781 (32.9 MiB)  TX bytes:39449121 (37.6 MiB)
+
+vethade5a64 Link encap:Ethernet  HWaddr DE:95:AF:4F:0D:24  
+          inet6 addr: fe80::dc95:afff:fe4f:d24%32741/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:688571 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:501992 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:75588512 (72.0 MiB)  TX bytes:77316048 (73.7 MiB)
+
+vethb5ba98b Link encap:Ethernet  HWaddr F2:E0:87:20:7F:66  
+          inet6 addr: fe80::f0e0:87ff:fe20:7f66%32741/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:563640 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:857441 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:92064866 (87.7 MiB)  TX bytes:92382542 (88.1 MiB)
+```          
+- При многократном запуске контенера с нгингсом ```docker run --network host -d nginx``` запускается только один, исходя из лога 80 порт уже занят:
+``` 
+docker logs a341992d21d7 
+2019/12/02 18:56:20 [emerg] 1#1: bind() to 0.0.0.0:80 failed (98: Address already in use)
+nginx: [emerg] bind() to 0.0.0.0:80 failed (98: Address already in use)
+```
+### Docker networks ###
+
+- ```sudo ln -s /var/run/docker/netns /var/run/netns``` - создан симлинк к сетеым namespace
+- Запущены контейнеры с none и host:
+  - При none появляется неймспейс, но выполнение команды возвращает ошибку, видимо потому что сеть изолирована 
+```
+sudo docker run --network none -d joffotron/docker-net-tools
+086a872fb88a13e9a62a4e2a54a9d14cf467ebeb6b223b4dd0450d44fb7b4306
+$ sudo ip netns
+RTNETLINK answers: Invalid argument
+RTNETLINK answers: Invalid argument
+RTNETLINK answers: Invalid argument
+netns
+RTNETLINK answers: Invalid argument
+dc2b3cd7a87f
+default
+
+sudo ip netns exec dc2b3cd7a87f hostnamectl
+RTNETLINK answers: Invalid argument
+Cannot open network namespace "dc2b3cd7a87f": No such file or directory
+```
+  - При host появляется только default namespace, который наследуется от хостовой машины, команда выполняется
+```
+sudo docker run --network host -d joffotron/docker-net-tools
+2bec4d045b8da28da97167e7686a7e020186bdfc2f8596b9d9c4543aec295087
+docker-user@docker-host:~$ sudo ip netns
+RTNETLINK answers: Invalid argument
+RTNETLINK answers: Invalid argument
+netns
+default
+
+sudo ip netns exec default hostnamectl
+RTNETLINK answers: Invalid argument
+   Static hostname: docker-host
+         Icon name: computer-vm
+           Chassis: vm
+        Machine ID: d13a1a7fc285079bc2e571b44c1f02da
+           Boot ID: 63f617d74b334dd4a7cf2bdad891ca09
+    Virtualization: kvm
+  Operating System: Ubuntu 16.04.6 LTS
+            Kernel: Linux 4.15.0-1049-gcp
+      Architecture: x86-64
+
+```
+
+### Bridge network driver ###
+
+- Создана bridge-сеть:``` docker network create reddit-bridge --driver bridge ``` 
+- Поднято прилажение:
+```
+docker run -d --network=reddit-bridge mongo:latest
+docker run -d --network=reddit-bridge eugenesable/post:1.0
+docker run -d --network=reddit-bridge eugenesable/comment:1.0
+docker run -d --network=reddit-bridge -p 9292:9292 eugenesable/ui:1.0
+```
+- Без сетевых алиасов не завелось
+- Прилажение поднято в 2-х сетях front и back, чтобы сервис ui не имел доступа к базе данных:
+```
+ docker network create back_net --subnet=10.0.2.0/24
+ docker network create front_net --subnet=10.0.1.0/24
+```
+```
+docker run -d --network=front_net -p 9292:9292 --name ui eugenesable/ui:1.0
+docker run -d --network=back_net --name comment eugenesable/comment:1.0 
+docker run -d --network=back_net --name post eugenesable/post:1.0 
+docker run -d --network=back_net --name mongo_db  --network-alias=post_db --network-alias=comment_db mongo:latest 
+```
+- Контейнеры post и comment нужно поместить в обе сети, так как сети изолированы
+Дополнительные сети подключаются командой:
+
+``` docker network connect <network> <container>```
+- Посмотрим сетевой стек на docker-host:
+- Установлен bridge-utils
+``` docker network ls``` - список сетей:
+```
+sudo  docker network ls
+NETWORK ID          NAME                DRIVER              SCOPE
+ee07c276cec1        back_net            bridge              local
+c3c3f6cef9f2        bridge              bridge              local
+7b6e1019f3ce        front_net           bridge              local
+df47573911a6        host                host                local
+08225cf566c1        none                null                local
+a9b719f3a1b0        reddit              bridge              local
+7d9f880bf64b        reddit-bridge       bridge              local
+3fabcbfeff5d        reddit_new          bridge              local
+```
+- Нашли все бриджы ```ifconfig | grep br ```:
+```
+ifconfig | grep br
+br-3fabcbfeff5d Link encap:Ethernet  HWaddr 02:42:67:28:11:9e  
+br-7b6e1019f3ce Link encap:Ethernet  HWaddr 02:42:50:e4:c7:0d  
+br-7d9f880bf64b Link encap:Ethernet  HWaddr 02:42:1e:a9:9e:8f  
+br-a9b719f3a1b0 Link encap:Ethernet  HWaddr 02:42:eb:59:0f:9f  
+br-ee07c276cec1 Link encap:Ethernet  HWaddr 02:42:ff:b0:1e:2e 
+```
+- Отображаемые veth-интерфейсы - это те части виртуальных пар интерфейсов, которые лежат в сетевом пространстве хоста и также отображаются в ifconfig. Вторые их части лежат внутри контейнеров.
+```
+brctl show br-7b6e1019f3ce
+bridge name             bridge id               STP enabled     interfaces
+br-7b6e1019f3ce         8000.024250e4c70d       no              veth7a4d521
+                                                                vethc1e85eb
+                                                                vethe4483f4
+```
+- iptables:
+- POSTROUTING. Отмеченные звездочкой правила отвечают за выпуск во внешнюю сеть контейнеров из bridge-сетей.
+```
+Chain POSTROUTING (policy ACCEPT)
+target     prot opt source               destination         
+MASQUERADE  all  --  10.0.2.0/24          0.0.0.0/0           
+MASQUERADE  all  --  10.0.1.0/24          0.0.0.0/0           
+MASQUERADE  all  --  172.21.0.0/16        0.0.0.0/0           
+MASQUERADE  all  --  172.20.0.0/16        0.0.0.0/0           
+MASQUERADE  all  --  172.18.0.0/16        0.0.0.0/0           
+MASQUERADE  all  --  172.17.0.0/16        0.0.0.0/0           
+MASQUERADE  tcp  --  10.0.1.2             10.0.1.2             tcp dpt:9292
+```
+- DOCKER.Перенаправление трафика на адреса уже конкретных контейнеров.
+```         
+DNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:9292 to:10.0.1.2:9292
+```
+- Процесс docker-proxy, который слушает на порту 9292
+```
+$ ps ax | grep docker-proxy
+ 6359 pts/0    S+     0:00 grep --color=auto docker-proxy
+31989 ?        Sl     0:00 /usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 9292 -container-ip 10.0.1.2 -container-port 9292
+```
+### Docker-compose ###
+
+• Декларативное описание docker-инфраструктуры в YAML-формате
+• Управление многоконтейнерными приложениями
+
+Добавлен docker-compose.yml  c reddit:
+```
+version: '3.3'
+services:
+  post_db:
+    image: mongo:3.2
+    volumes:
+      - post_db:/data/db
+    networks:
+      - reddit
+  ui:
+    build: ./ui
+    image: ${USERNAME}/ui:1.0
+    ports:
+      - 9292:9292/tcp
+    networks:
+      - reddit
+  post:
+    build: ./post-py
+    image: ${USERNAME}/post:1.0
+    networks:
+      - reddit
+  comment:
+    build: ./comment
+    image: ${USERNAME}/comment:1.0
+    networks:
+      - reddit
+
+volumes:
+  post_db:
+
+networks:
+  reddit:
+```
+- docker-compose умеет интерполяцию - экспортирована переменную USERNAME:``` export USERNAME=eugenesable ```
+- Запущен проект ``` docker-compose up -d ```
+- Результат: 
+```
+$ docker-compose ps
+    Name                  Command             State           Ports         
+----------------------------------------------------------------------------
+src_comment_1   puma                          Up                            
+src_post_1      python3 post_app.py           Up                            
+src_post_db_1   docker-entrypoint.sh mongod   Up      27017/tcp             
+src_ui_1        puma                          Up      0.0.0.0:9292->9292/tcp
+```
+### Задание ###
+- Добавлены сети и параметризирован:
+```
+
+version: '3.3'
+services:
+  post_db:
+    image: mongo:${MONGO_V}
+    volumes:
+      - post_db:/data/db
+    networks:
+      back-net:
+        aliases:
+          - post_db
+          - comment_db
+          
+  ui:
+    build: ./ui
+    image: ${USERNAME}/ui:${UI_V}
+    ports:
+      - ${UI_PORT}:${APP_PORT}/tcp
+    networks:
+      front-net:
+        aliases:
+          - ui
+        
+  post:
+    build: ./post-py
+    image: ${USERNAME}/post:${POST_V}
+    networks:
+      back-net:
+        aliases:
+          - post
+      front-net:
+        aliases:
+          - post
+        
+  comment:
+    build: ./comment
+    image: ${USERNAME}/comment:${COMMENT_V}
+    networks:
+       back-net:
+        aliases:
+          - comment
+       front-net:
+        aliases:
+          - comment
+
+volumes:
+  post_db:
+
+networks:
+  back-net:
+  front-net:
+``` 
+- .env:
+```
+COMPOSE_PROJECT_NAME=some_project
+MONGO_V=3.2
+USERNAME=eugenesable
+UI_V=1.0
+UI_PORT=9292
+APP_PORT=9292
+POST_V=1.0
+COMMENT_V=1.0
+```
+- Имя проекта можно задать с помощью переменной COMPOSE_PROJECT_NAME в .env
+
+### Со* ###
+
+- Изменять код каждого из приложений, не выполняя сборку образа можно вытащив код наружу в volum'ы + puma debug:
+```
+version: '3.3'
+
+services:
+  ui:
+    volumes:
+      - ui:/app
+    command: puma --debug -w 2
+  
+  comment:
+    volumes:
+      - comment:/app
+  
+  post:
+    volumes:
+      - post-py:/app
+
+volumes:
+  ui:
+  comment:
+  post-py:
+    
+```
+
+
+
+
 ## Выполнено задание №13 ##
 
 - Ветка docker-3
@@ -77,7 +472,28 @@ docker run -d --network=reddit \
 docker run -d --network=reddit \
 -p 9292:9292 <your-dockerhub-login>/ui:1.0
 ```
+- Оптимизировать образы можно записав устновку в один слой:
+```
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev \
+&& pip install cython thriftpy2 \
+&& pip install --upgrade pip \
+&& pip install -r /app/requirements.txt
+```
+- Тк же можно использовать alpine-образы 
 
+- Устновка через переменную --env
+```
+docker run -d --network=reddit_new --network-alias=posts_db_new --network-alias=comment_db_new mongo:latest
+
+docker run -d --network=reddit --network-alias=post_new --env POST_DATABASE_HOST=posts_db_new eugenesable/post:2.0
+
+docker run -d --network=reddit --network-alias=comment_new --env COMMENT_DATABASE_HOST=comment_db_new eugenesable/comment:2.0
+
+docker run -d --network=reddit --env POST_SERVICE_HOST=post_new --env COMMENT_SERVICE_HOST=comment_new -p 9292:9292 eugenesable/ui:2.0
+```
+- Создание вольюма для хранения данных контенера:
+ ```docker volume create reddit_db```
+ 
 
 
 Предварительно склонирован репозиторий ```https://github.com/Otus-DevOps-2019-08/eugenesable_microservices``` для выполнения заданий.
