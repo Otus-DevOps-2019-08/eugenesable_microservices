@@ -16,3 +16,4 @@ db/
 .cache
 .pytest_cache
 venv/*
+.env
