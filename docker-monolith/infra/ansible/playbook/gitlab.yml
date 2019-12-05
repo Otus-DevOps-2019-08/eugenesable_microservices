@@ -1,0 +1,7 @@
+---
+- name: Install gitlab
+  hosts: all
+  become: true
+  tasks:
+    - include_role:
+        name: gitlab-compose
