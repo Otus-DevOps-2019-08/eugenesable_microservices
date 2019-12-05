@@ -4,4 +4,4 @@
   become: true
   tasks:
     - include_role:
-        name: geerlingguy.docker
+        name: docker
