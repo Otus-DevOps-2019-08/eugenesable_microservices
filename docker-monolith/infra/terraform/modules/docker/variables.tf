@@ -8,7 +8,7 @@ variable zone {
 }
 variable docker_disk_image {
   description = "Disk image for docker"
-  default     = "docker-reddit-base-1574717679"
+  default     = "docker-reddit-base-1575505802"
 }
 
 variable instances {

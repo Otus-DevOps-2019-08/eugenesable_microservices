@@ -1,8 +1,8 @@
 resource "google_compute_instance" "docker" {
-  name         = "reddit-docker"
-  machine_type = "g1-small"
+  name         = "docker-gitlab"
+  machine_type = "n1-standard-1"
   zone         = var.zone
-  tags         = ["reddit-docker"]
+  tags         = ["docker-gitlab"]
 
   boot_disk {
     initialize_params { image = var.docker_disk_image }
@@ -64,4 +64,13 @@ resource "google_compute_firewall" "firewall_docker" {
   source_ranges = ["0.0.0.0/0"]
 }
 
+resource "google_compute_firewall" "firewall_http_https" {
+  name    = "allow-http-https-default"
+  network = "default"
+  allow {
+    protocol = "tcp"
+    ports    = ["80", "443"]
+  }
+  source_ranges = ["0.0.0.0/0"]
+}
 

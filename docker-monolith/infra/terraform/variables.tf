@@ -32,6 +32,6 @@ variable app_disk_image {
 
 variable docker_disk_image {
   description = "Disk image for reddit db"
-  default     = "docker-reddit-base-1574717679"
+  default     = "docker-reddit-base-1575501294"
 }
 
