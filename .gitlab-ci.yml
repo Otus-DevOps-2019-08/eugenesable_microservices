@@ -18,7 +18,6 @@ build_job:
   stage: build
   script:
     - curl -sSL https://get.docker.com/ | sh
-    - sudo usermod -aG docker gitlab-runner
     - systemctl restart docker
     - docker info
     - docker login -u $docker_hub_user -p $docker_hub_password
