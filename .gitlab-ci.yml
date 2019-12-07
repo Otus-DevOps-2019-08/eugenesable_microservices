@@ -26,6 +26,7 @@ build_job:
   stage: build
   variables:
     DOCKER_HOST: unix:///var/run/docker.sock
+    DOCKER_TLS_CERTDIR: ""
   script:
     - docker info
     - docker login -u $docker_hub_user -p $docker_hub_password
