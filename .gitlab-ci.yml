@@ -1,4 +1,3 @@
-image: ruby:2.4.2
 
 stages:
   - build
@@ -10,14 +9,15 @@ stages:
 variables:
   DATABASE_URL: 'mongodb://mongo/user_posts'
   DOCKER_DRIVER: overlay 
+
+services:
+  - docker:dind  
   
 before_script:
   - cd reddit
   - bundle install
 
 build_job:
-  services:
-    - docker:dind
   stage: build
   script:
     - curl -sSL https://get.docker.com/ | sh
