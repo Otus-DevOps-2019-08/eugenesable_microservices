@@ -20,6 +20,12 @@ before_script:
 
 build_job:
   stage: build
+  before_script:
+    - echo 'Before script override for build_job'
+  image: docker:19.03.1
+  stage: build
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
   script:
     - curl -sSL https://get.docker.com/ | sh
     - docker info
