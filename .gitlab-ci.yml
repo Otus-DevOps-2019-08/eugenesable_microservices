@@ -16,6 +16,8 @@ before_script:
   - bundle install
 
 build_job:
+  services:
+    - docker:dind
   stage: build
   script:
     - curl -sSL https://get.docker.com/ | sh
