@@ -29,7 +29,8 @@ build_job:
   script:
     - docker info
     - docker login -u $docker_hub_user -p $docker_hub_password
-    - docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0  
+    - docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0 
+    - ip a 
 
 test_unit_job:
   stage: test
