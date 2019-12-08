@@ -19,11 +19,11 @@ build_job:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
 
-stage: build
-script:
-  - echo 'Building APP'
-  - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-  - /kaniko/executor --context . --dockerfile ./Dockerfile  --no-push 
+  stage: build
+  script:
+    - echo 'Building APP'
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context . --dockerfile ./Dockerfile  --no-push
 
 test_unit_job:
   stage: test
