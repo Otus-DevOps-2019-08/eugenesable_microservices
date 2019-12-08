@@ -28,6 +28,7 @@ build_job:
   services:
       - docker:18.09-dind   
   script:
+    - echo 'BITCH PLEASE'
     - curl -sSL https://get.docker.com/ | sh
     - docker info
     - docker login -u $docker_hub_user -p $docker_hub_password
