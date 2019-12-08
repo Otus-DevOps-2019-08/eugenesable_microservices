@@ -12,18 +12,26 @@ variables:
    
 before_script:
   - cd reddit
-
+  - bundle install
 
 build_job:
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
+
+  before_script:
+    - echo 'Before script override for build_job'
 
   stage: build
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2 
+    DOCKER_TLS_CERTDIR: ""
+  
+  services:
+      - docker:18.09-dind   
   script:
-    - echo 'Building APP'
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context . --dockerfile ./Dockerfile  --no-push
+    - curl -sSL https://get.docker.com/ | sh
+    - docker info
+    - docker login -u $docker_hub_user -p $docker_hub_password
+    - docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0  
 
 test_unit_job:
   stage: test
