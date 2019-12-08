@@ -18,6 +18,7 @@ before_script:
     image:
       name: gcr.io/kaniko-project/executor:debug
       entrypoint: [""]
+      
     stage: build
     script:
       - echo 'Building'
