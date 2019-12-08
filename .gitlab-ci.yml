@@ -28,10 +28,9 @@ build_job:
       - docker:18.09-dind   
   script:
     - docker info
+    - docker build -t otus-reddit .
     - docker login -u $docker_hub_user -p $docker_hub_password
-    - docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0 
-    
-    - ip a 
+    - docker push eugenesable/otus-reddit
 
 test_unit_job:
   stage: test
