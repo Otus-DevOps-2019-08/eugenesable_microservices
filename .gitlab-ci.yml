@@ -20,6 +20,7 @@ build_job:
     - echo 'Before script override for build_job'
 
   stage: build
+  
   variables:
     DOCKER_HOST: tcp://docker:2375/
     DOCKER_DRIVER: overlay2 
@@ -28,7 +29,6 @@ build_job:
   services:
       - docker:18.09-dind   
   script:
-    - echo 'BITCH PLEASE'
     - curl -sSL https://get.docker.com/ | sh
     - docker info
     - docker login -u $docker_hub_user -p $docker_hub_password
@@ -56,10 +56,11 @@ deploy_dev_job:
 
 branch review:
   stage: review
-  script: echo "Deploy to $CI_ENVIRONMENT_SLUG"
+  script:
+    - echo $CI_ENVIRONMENT_SLUG
   environment:
     name: branch/$CI_COMMIT_REF_NAME
-    url: http://$CI_ENVIRONMENT_SLUG.example.com
+    url: http://$CI_ENVIRONMENT_SLUG.34.77.27.230.sslip.io
   only:
     - branches
   except:
