@@ -1,7 +1,7 @@
 ---
-- name: Install Docker engine
+- name: Install gitlab
   hosts: all
   become: true
   tasks:
     - include_role:
-        name: docker
+        name: gitlab-compose

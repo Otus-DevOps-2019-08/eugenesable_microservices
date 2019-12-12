@@ -1,0 +1,29 @@
+
+    - name: Install python for Ansible
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+      changed_when: False
+    
+    - name: create gitlab directories 
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0775
+      with_items:
+        - /srv/gitlab/config
+        - /srv/gitlab/data
+        - /srv/gitlab/logs
+
+    - name: push template
+      template:
+        src: templates/docker-compose.yml.j2
+        dest: /srv/gitlab
+    
+    - name: j2 to yml
+      command: mv /srv/gitlab/docker-compose.yml.j2 /srv/gitlab/docker-compose.yml
+             
+    - name: Run docker-compose
+      docker_compose:
+        project_src: /srv/gitlab  
+  

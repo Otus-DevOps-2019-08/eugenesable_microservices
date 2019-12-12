@@ -1,0 +1,3 @@
+---
+# defaults file for gitlab-compose
+ansible_host: networkInterfaces[0].accessConfigs[0].natIP
