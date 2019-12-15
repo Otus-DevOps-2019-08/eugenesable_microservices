@@ -1,7 +1,0 @@
-REPOSITORY                    TAG                 IMAGE ID            CREATED              SIZE
-eugenesable/ubuntu-tmp-file   latest              e17220417e94        About a minute ago   123MB
-ubuntu                        16.04               5f2bf26e3524        3 weeks ago          123MB
-
-Основное различие между образом и контейнером — в доступном для записи верхнем слое. Из вывода docker inspect 
-это можно увидеть так:
-В описании контенера присутствует параметр "ReadonlyRootfs": false
