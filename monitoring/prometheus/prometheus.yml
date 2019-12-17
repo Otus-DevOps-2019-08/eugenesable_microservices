@@ -1,3 +1,4 @@
+
 ---
 global:
   scrape_interval: '5s'
@@ -27,5 +28,3 @@ global:
     static_configs:
       - targets:
         - 'mongodb-exporter:9216'
-        
-    
