@@ -61,7 +61,17 @@ services:
     networks:
       - back-net
       - front-net
-       
+
+  mongodb_exporter:
+    image: bitnami/mongodb-exporter
+    ports:
+      - 9216:9216
+    networks:
+      - back-net
+      - front-net
+    environment:
+      MONGODB_URI: 'mongodb://post_db:27017'
+
 volumes:
   post_db:
   prometheus_data:
