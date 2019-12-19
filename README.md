@@ -1,6 +1,646 @@
 # eugenesable_microservices
 eugenesable microservices repository
 
+## Выполнено задание №16 ##
+##   Prometheus  ##
+
+- Ветка monitoring-1
+План:
+• Prometheus: запуск, конфигурация, знакомство с
+Web UI
+• Мониторинг состояния микросервисов
+• Сбор метрик хоста с использованием экспортера  
+
+- Созданы правила файрвола:
+``` $ gcloud compute firewall-rules create prometheus-default --allow tcp:9090``` - прометеус
+``` $ gcloud compute firewall-rules create puma-default --allow tcp:9292``` - puma
+
+- Create docker-host:
+```
+docker-machine create --driver google \
+ --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+ --google-machine-type n1-standard-1 \
+ --google-zone europe-west1-b \
+ docker-host
+```
+- Connect to docker-host:
+```
+eval $(docker-machine env docker-host)
+```
+- Run Prometheus docker image:
+```
+docker run --rm -p 9090:9090 -d --name prometheus prom/prometheus:v2.1.0
+```
+- Discover ip address: ``` docker-machine ip docker-host```
+- UI become available on ``` http://35.189.233.221:9090/graph```
+Clean Prometheus is already collecting some metrics of its condition. 
+For example:
+```
+## Consists of metric name and labels that represented as key/value sets
+✔prometheus_build_info{ 
+  branch="HEAD",
+  goversion="go1.9.2",
+  instance="localhost:9090",
+  job="prometheus",
+  revision="85f23d82a045d103ea7f3c89a91fba4a93e6367a",
+  version="2.1.0"}
+```
+- Targets - systems or processes for Prometheus to monitor. That pulls http-requests on endpoints he has.
+
+- Dir structure  had some changes w/ creating docker folder. Files from previous docker-homeworks moved there. Monitoring folder created
+- Has been built an image for monitoring redditapp microservices
+- Dockerfile added:
+```
+FROM prom/prometheus:v2.1.0
+ADD prometheus.yml /etc/prometheus/
+```
+- prometheus.yml added
+```
+---
+global:
+  scrape_interval: '5s'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+        - 'localhost:9090'
+
+  - job_name: 'ui'
+    static_configs:
+      - targets:
+        - 'ui:9292'
+
+  - job_name: 'comment'
+    static_configs:
+      - targets:
+        - 'comment:9292'
+```
+- Building up an image:
+- ``` export USER_NAME=eugenesable ``` from docker-hub
+- ``` docker build -t $USER_NAME/prometheus . ```
+- Each project built with docker_build.sh from its own folder
+```
+/src/ui $ bash docker_build.sh
+/src/post-py $ bash docker_build.sh
+/src/comment $ bash docker_build.sh
+```
+- Prometheus added as a service in docker-compose:
+```
+services:
+...
+  prometheus:
+    image: ${USERNAME}/prometheus
+    ports:
+      - '9090:9090'
+    volumes:
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'  ## config file path of container
+      - '--storage.tsdb.path=/prometheus' ## storage path in container
+      - '--storage.tsdb.retention=1d' ## keep metrics for 1 day
+
+volumes:
+  prometheus_data:
+```
+- Run docker-compose.yml:
+```
+❯ docker-compose up -d                   
+Creating some_project_post_db_1    ... done
+Creating some_project_comment_1    ... done
+Creating some_project_post_1       ... done
+Creating some_project_prometheus_1 ... done
+Creating some_project_ui_1         ... done
+```
+- Made some manipulations with stopint services  and watching out the behavior through graphs 
+
+## Exporters. Node exporter  ##
+
+- NodeExporter added as a service to docker-compose.yml:
+```
+  node-exporter:
+    image: prom/node-exporter:v0.15.2
+    user: root
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - back-net
+      - front-net
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($$|/)"'
+
+```
+- New service added to prometheus.yml:
+```
+- job_name: 'node'
+  static_configs:
+    - targets:
+      - 'node-exporter:9100'
+```
+- New images pushed to Docker Hub:
+```
+docker login
+docker push $USER_NAME/ui
+docker push $USER_NAME/post
+docker push $USER_NAME/comment
+docker push $USER_NAME/prometheus
+```
+## Editional task* ##
+
+- Mongodb exporter docker image - https://github.com/bitnami/bitnami-docker-mongodb-exporter
+- prometheus.yml:
+```
+  - job_name: 'mongodb-exporter'
+    static_configs:
+      - targets:
+        - 'mongodb-exporter:9216'
+```
+- docker-compose.yml:
+```
+  mongodb_exporter:
+    image: bitnami/mongodb-exporter
+    networks:
+      - back-net
+      - front-net
+    environment:
+      MONGODB_URI: 'mongodb://post_db:27017'  
+```
+
+
+
+
+
+
+
+## Выполнено задание №15 ##
+##  GITLAB  ##
+
+- Ветка gitlab-ci-1
+- Создан packer-образ, удовлетвояющий условиям гитлаба
+```
+packer build -var 'project_id=docker-260019' \
+                -var 'source_image_family=ubuntu-1604-lts' \
+                -var 'machine_type=n1-standard-1' \
+                -var 'disk_size=100' docker.json
+```
+- В образе провиженер, который ссылается на ansible-роль, как и в одном прошлых ДЗ.
+- Добавлена роль, поднимающая в образе docker-compose:
+```
+---
+- name: Add Docker GPG apt Key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+- name: Add Docker Repository
+  apt_repository:
+    repo: deb https://download.docker.com/linux/ubuntu xenial stable
+    state: present
+- name: Update apt and install docker-ce
+  apt: update_cache=yes name=docker-ce state=latest
+- name: Install Docker-ce
+  apt:
+    name: docker-ce
+- name: Install Docker-compose
+  apt:
+    name: docker-compose    
+``` 
+- Терраформом поднят stage на основе нового образа
+- Добавлена роль gitlab-compose, которая поднимает gitlab-omnibus
+```
+    - name: Install python for Ansible
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+      changed_when: False
+    
+    - name: create gitlab directories 
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0775
+      with_items:
+        - /srv/gitlab/config
+        - /srv/gitlab/data
+        - /srv/gitlab/logs
+
+    - name: push template
+      template:
+        src: templates/docker-compose.yml.j2
+        dest: /srv/gitlab
+    
+    - name: j2 to yml
+      command: mv /srv/gitlab/docker-compose.yml.j2 /srv/gitlab/docker-compose.yml
+             
+    - name: Run docker-compose
+      docker_compose:
+        project_src: /srv/gitlab  
+``` 
++ template/docker-compose.yml.j2
+```
+web:
+  image: 'gitlab/gitlab-ce:latest'
+  restart: always
+  hostname: 'gitlab.example.com'
+  environment:
+    GITLAB_OMNIBUS_CONFIG: |
+      external_url 'http://{{ ansible_host }}'
+  ports:
+    - '80:80'
+    - '443:443'
+    - '2222:22'
+  volumes:
+    - '/srv/gitlab/config:/etc/gitlab'
+    - '/srv/gitlab/logs:/var/log/gitlab'
+    - '/srv/gitlab/data:/var/opt/gitlab'
+
+```
+- Gitlab поднялся, указан пароль для административного аккаунта (root) 
+- Выключена регистрацию новых пользователей
+  
+  ### Первый проект ###
+  • Каждый проект в Gitlab CI принадлежит к группе проектов
+
+  • В проекте может быть определен CI/CD пайплайн
+
+  • Задачи (jobs) входящие в пайплайн должны исполняться на runners
+
+- Создана группа и проект
+Добавляем remote в eugenesable_microservices
+```git checkout -b gitlab-ci-1```
+```git remote add gitlab http://34.76.66.215/homework/example.git```
+```git push gitlab gitlab-ci-1```
+
+### CI/CD Pipeline ###
+ - В репозиторий добавлен файл .gitlab-ci.yml
+ ```
+ stages:
+  - build
+  - test
+  - deploy
+
+build_job:
+  stage: build
+  script:
+    - echo 'Building'
+
+test_unit_job:
+  stage: test
+  script:
+    - echo 'Testing 1'
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_job:
+  stage: deploy
+  script:
+    - echo 'Deploy'
+ ```
+
+- В разделе CI/CD появился pipeline в статусе pending / stuck так как нет runner'а  
+
+- На сервере запущен runner NWJxhnTLsahY18yhuWhT
+```
+docker run -d --name gitlab-runner --restart always \
+-v /srv/gitlab-runner/config:/etc/gitlab-runner \
+-v /var/run/docker.sock:/var/run/docker.sock \
+gitlab/gitlab-runner:latest 
+```
+- Зарегистрирован
+``` docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false```
+```
+docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false
+Runtime platform                                    arch=amd64 os=linux pid=12 revision=577f813d version=12.5.0
+Running in system-mode.                            
+                                                   
+Please enter the gitlab-ci coordinator URL (e.g. https://gitlab.com/):
+http://34.76.66.215/
+Please enter the gitlab-ci token for this runner:
+NWJxhnTLsahY18yhuWhT
+Please enter the gitlab-ci description for this runner:
+[e41a10d56db3]: my-runner
+Please enter the gitlab-ci tags for this runner (comma separated):
+linux,xenial,ubuntu,docker
+Registering runner... succeeded                     runner=NWJxhnTL
+Please enter the executor: virtualbox, kubernetes, custom, docker, parallels, ssh, docker-ssh, shell, docker+machine, docker-ssh+machine:
+docker
+Please enter the default Docker image (e.g. ruby:2.6):
+alpine:latest
+Runner registered successfully. Feel free to start it, but if it's running already the config should be automatically reloaded! 
+```
+- В настройках появился новый runner, pipeline запустился
+
+### reddit в pipeline ###
+```
+git clone https://github.com/express42/reddit.git && rm -rf ./reddit/.git
+git add reddit/
+git commit -m "Add reddit app"
+git push gitlab gitlab-ci-1
+```
+- Изменено описание pipelin'а .gitlab-ci.yml:
+```
+image: ruby:2.4.2
+
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  DATABASE_URL: 'mongodb://mongo/user_posts'
+
+before_script:
+  - cd reddit
+  - bundle install
+
+build_job:
+  stage: build
+  script:
+    - echo 'Building'
+
+test_unit_job:
+  stage: test
+  services:
+    - mongo:latest
+  script:
+    - ruby simpletest.rb
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_job:
+  stage: deploy
+  script:
+    - echo 'Deploy'
+```
+- Добавлен simpletest.rb - вызов теста
+```
+require_relative './app'
+require 'test/unit'
+require 'rack/test'
+set :environment, :test
+class MyAppTest < Test::Unit::TestCase
+ include Rack::Test::Methods
+ def app
+ Sinatra::Application
+ end
+ def test_get_request
+ get '/'
+ assert last_response.ok?
+ end
+end
+```
+- В Gemfile добавлен gem 'rack-test' - библиотека для тестирования
+
+### Окружения ###
+### DEV ###
+
+- Изменен .gitlab-ci.yml
+  - deploy -> review
+  - deploy_job -> deploy_dev_job
+  - Добавлено 
+  ```  
+  environment:
+    name: dev
+    url: http://dev.example.com
+  ```
+```
+image: ruby:2.4.2
+
+stages:
+  - build
+  - test
+  - review
+
+variables:
+  DATABASE_URL: 'mongodb://mongo/user_posts'
+
+before_script:
+  - cd reddit
+  - bundle install
+
+build_job:
+  stage: build
+  script:
+    - echo 'Building'
+    
+test_unit_job:
+  stage: test
+  services:
+    - mongo:latest
+  script:
+    - ruby simpletest.rb
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_dev_job:
+  stage: review
+  script:
+    - echo 'Deploy'
+  environment:
+    name: dev
+    url: http://dev.example.com
+```
+- http://34.76.66.215/homework/example/environments - появилось окружение dev
+
+### PROD & STAGE ###
+
+- Добавлена директива ```when: manual``` - окружения будут стартовать руками из админки.
+```
+image: ruby:2.4.2
+
+stages:
+  - build
+  - test
+  - review
+  - stage
+  - production
+
+variables:
+  DATABASE_URL: 'mongodb://mongo/user_posts'
+
+before_script:
+  - cd reddit
+  - bundle install
+
+build_job:
+  stage: build
+  script:
+    - echo 'Building'
+
+test_unit_job:
+  stage: test
+  services:
+    - mongo:latest
+  script:
+    - ruby simpletest.rb
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_dev_job:
+  stage: review
+  script:
+    - echo 'Deploy'
+  environment:
+    name: dev
+    url: http://dev.example.com
+
+staging:
+  stage: stage
+  when: manual
+  only:
+    - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: stage
+    url: https://beta.example.com
+
+production:
+  stage: production
+  when: manual
+  only:
+    - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: production
+    url: https://example.com
+```    
+- http://34.76.66.215/homework/example/environments - Добавились окружения prod и stage 
+
+- Добавлена в описание pipeline директиву ``` only ```, которая не позволит нам выкатить на staging и production код,
+не помеченный с помощью тэга в git:
+```
+only:
+- /^\d+\.\d+\.\d+/
+```
+- Добавили tag  tag 2.4.10 ```git tag 2.4.10```
+- В результате пуша запустился только DEV
+
+### Динамические окружения ###
+
+- Gitlab CI позволяет определить динамические окружения, это мощная функциональность позволяет вам иметь выделенный стенд для, например, каждой feature-ветки в git. Теперь, на каждую ветку в git отличную от master Gitlab CI будет определять новое окружение. 
+```
+ stage: review
+ script: echo "Deploy to $CI_ENVIRONMENT_SLUG"
+ environment:
+ name: branch/$CI_COMMIT_REF_NAME
+ url: http://$CI_ENVIRONMENT_SLUG.example.com
+ only:
+ - branches
+ except:
+ - master
+```
+- Задание со * не пошло. Добиться регистри не вышло. Не получилось настроить встроенный Лецинкрипт ```SSL certificate problem: Invalid certificate chain``` из-за этого перестал работать пуш, не решались раннеры, думал, что можно реализовать способом в пайплане ниже:
+
+```
+image: ruby:2.4.2
+
+stages:
+  - build
+  - test
+  - review
+  - stage
+  - production
+
+variables:
+  DATABASE_URL: 'mongodb://mongo/user_posts'
+   
+before_script:
+  - cd reddit
+  - bundle install
+
+build_job:
+
+  before_script:
+    - echo 'Before script override for build_job'
+
+  stage: build
+  
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2 
+    DOCKER_TLS_CERTDIR: ""
+  
+  services:
+      - docker:18.09-dind   
+  script:
+    - curl -sSL https://get.docker.com/ | sh
+    - docker info
+    - docker login -u $docker_hub_user -p $docker_hub_password
+    - docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0  
+
+test_unit_job:
+  stage: test
+  services:
+    - mongo:latest
+  script:
+    - ruby simpletest.rb
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_dev_job:
+  stage: review
+  script:
+    - echo 'Deploy'
+  environment:
+    name: dev
+    url: http://dev.example.com
+
+branch review:
+  stage: review
+  script:
+    - echo $CI_ENVIRONMENT_SLUG
+  environment:
+    name: branch/$CI_COMMIT_REF_NAME
+    url: http://$CI_ENVIRONMENT_SLUG.34.77.27.230.sslip.io
+  only:
+    - branches
+  except:
+    - master
+
+staging:
+  stage: stage
+  when: manual
+  only:
+    - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: stage
+    url: https://beta.example.com
+
+production:
+  stage: production
+  when: manual
+  only:
+    - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: production
+    url: https://example.com
+ ```   
+
+
 ## Выполнено задание №14 ##
 
 - Ветка docker-4
