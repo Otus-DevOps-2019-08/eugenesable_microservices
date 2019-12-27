@@ -30,15 +30,12 @@ services:
       - back-net
       - front-net
 
-  mongodb_exporter:
-    image: bitnami/mongodb-exporter
-    ports:
-      - 9216:9216
+  mongodb-exporter:
+    image: ssalaues/mongodb-exporter
+    environment:
+      - MONGODB_URI=mongodb://post_db:27017
     networks:
       - back-net
-      - front-net
-    environment:
-      MONGODB_URI: 'mongodb://post_db:27017'
 
   cadvisor:
     image: google/cadvisor:v0.29.0
@@ -52,6 +49,7 @@ services:
     networks:
       - back-net
       - front-net
+
   grafana:
     image: grafana/grafana:5.0.0
     volumes:
