@@ -63,6 +63,17 @@ services:
       - 3000:3000
     networks:
       front-net:
+
+  alertmanager:
+    image: ${USERNAME}/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+    ports:
+      - '9093:9093'
+    networks:
+      - front-net
+      - back-net
+
 volumes:
   prometheus_data:
   grafana_data:
