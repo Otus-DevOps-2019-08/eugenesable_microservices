@@ -525,8 +525,8 @@
     "list": []
   },
   "time": {
-    "from": "2019-12-27T10:17:38.477Z",
-    "to": "2019-12-27T12:06:08.996Z"
+    "from": "now",
+    "to": "now"
   },
   "timepicker": {
     "refresh_intervals": [
