@@ -20,19 +20,16 @@ services:
       -  front-net
 
   post:
-    image: ${USER_NAME}/post
-    environment:
-      - POST_DATABASE_HOST=post_db
-      - POST_DATABASE=posts
-    depends_on:
-      - post_db
-    ports:
-      - "5000:5000"
+    image: ${USERNAME}/post
+    image: ${USERNAME}/post:${POST_V}
     logging:
       driver: "fluentd"
       options:
         fluentd-address: localhost:24224
         tag: service.post
+    networks:
+      - back-net
+      - front-net
 
   comment:
     image: ${USERNAME}/comment
