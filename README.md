@@ -1,6 +1,148 @@
 # eugenesable_microservices
 eugenesable microservices repository
 
+## Homework #17 ##
+
+План
+
+- Мониторинг docker контейнеров
+- Визуализация метрик
+- Сбор метрик работы приложения и бизнес метрик
+- Настройка и проверка алертинга
+Подготовим окружение:
+```
+$ export GOOGLE_PROJECT=docker-260019
+
+# Создать докер хост
+docker-machine create --driver google \
+    --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+    --google-machine-type n1-standard-1 \
+    --google-zone europe-west1-b \
+    docker-host
+
+# Настроить докер клиент на удаленный докер демон
+eval $(docker-machine env docker-host)
+
+$ docker-machine ip docker-host
+
+```
+- Разделим docker-compose.yml на 2 части: для запуска приложения и запуска мониторинга docker-compose-monitoring.yml. Для наблюдения за контейнерами будем использовать CAdvisor https://github.com/google/cadvisor
+
+cAdvisor собирает информацию о ресурсах потребляемых контейнерами и характеристиках их работы.
+Примерами метрик являются:
+- процент использования контейнером CPU и памяти, выделенные для его запуска,
+- объем сетевого трафика и др.
+
+- docker-compose-minitoring.yml:
+```
+  cadvisor:
+    image: google/cadvisor:v0.29.0
+    volumes:
+      - '/:/rootfs:ro'
+      - '/var/run:/var/run:rw'
+      - '/sys:/sys:ro'
+      - '/var/lib/docker/:/var/lib/docker:ro'
+    ports:
+      - '8080:8080'
+    networks:
+      - back-net
+      - front-net
+
+```
+- prometheus.yml:
+```
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets:
+        - 'cadvisor:8080'
+```
+- Добавлено правило файрвола:
+```
+gcloud compute firewall-rules create cadvisor-default --allow tcp:8080
+```
+- Пересобран образ prometheus:
+```
+$ export USER_NAME=username # где username - ваш логин на Docker Hub
+$ docker build -t $USER_NAME/prometheus .
+```
+- Запущены сервисы:
+```
+$ docker-compose up -d
+$ docker-compose -f docker-compose-monitoring.yml up -d
+```
+- cAdvisor имеет UI, в котором отображается собираемая о контейнерах информация.
+Откроем страницу Web UI по адресу http://<docker-machinehost-ip>:8080
+
+- Добавлена и запущена grafana:
+```
+  grafana:
+    image: grafana/grafana:5.0.0
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=secret
+    depends_on:
+      - prometheus
+    ports:
+      - 3000:3000
+    networks:
+      front-net:
+volumes:
+  grafana_data:
+```
+- ```docker-compose -f docker-compose-monitoring.yml up -d grafana``` - Запущена графана
+- Добавлено правило файрвола для графаны:
+```
+gcloud compute firewall-rules create grafana-default --allow tcp:3000
+```
+- Добавлен Data Source Prometheus
+- С сайта графаны загружен дашборд для мониторинга docker контейнеров DockerMonitoring.json
+- Для мониторинга работы приложения создан дашборд с 2-мя графиками. Созданные метрики придадут видимости работы нашего приложения и понимания, в каком состоянии оно сейчас находится. Например, время обработки HTTP запроса не должно быть большим, поскольку это означает, что пользователю приходится долго ждать между запросами, и это ухудшает его общее впечатление от работы с приложением. Поэтому большое время обработки запроса будет для нас сигналом проблемы. Отслеживая приходящие HTTP-запросы, мы можем, например, посмотреть, какое количество ответов возвращается с кодом ошибки. Большое количество таких ответов также будет служить для нас сигналом проблемы в работе приложения.
+- В promrtheus.yml добавлен:
+```
+scrape_configs:
+...
+- job_name: 'post'
+static_configs:
+- targets:
+- 'post:5000'
+```
+- График изменения счетчика HTTP-запросов по времени ```ui_request_count```
+- График запросов, которые возвращают код ошибки на этом же дашборде. В поле запросов запишем выражение для поиска всех http
+запросов, у которых код возврата начинается либо с 4 либо с 5(используем регулярное выражения для поиска по лейблу). Будем
+использовать функцию rate(), чтобы посмотреть не просто значение счетчика за весь период наблюдения, но и скорость увеличения
+данной величины за промежуток времени (возьмем, к примеру 1-минутный интервал, чтобы график был хорошо видим)
+```rate(ui_request_count{http_status=~"^[45].*"}[1m])```
+- Для первого графика добавлен интересные счетчики:
+```rate(ui_request_count{http_status=~"^[200].*"}[1m])```
+```rate(ui_request_count{job="ui"}[1m])```
+- Для гистограммы использована метрика ```ui_request_latency_seconds_bucket{path="/"}```
+- Процентиль - Числовое значение в наборе значений
+  - Все числа в наборе меньше процентиля, попадают в границы заданного процента значений от всего числа значений в наборе
+  - Часто для анализа данных мониторинга применяются значения 90, 95 или 99-й процентиля.
+  - Мы вычислим 95-й процентиль для выборки времени обработки запросов, чтобы посмотреть какое значение является максимальной границей для большинства (95%) запросов. Для этого воспользуемся встроенной функцией ```histogram_quantile()```
+  - Выглядит так ```histogram_quantile(0.95, sum(rate(ui_request_response_time_bucket[5m])) by (le))```
+
+## Мониторинг бизнес-логики ##
+- Добавлены счетчики количества постов и комментариев ```post_count```и ```comment_count```
+Мы построим график скорости роста значения счетчика за последний час, используя функцию rate(). Это позволит нам получать информацию об активности пользователей приложения.
+- Новый дашборд Business_Logic_Monitoring - метрики: ```rate(post_count[1h])``` и ```rate(comment_count[1h])```
+
+## Алертинг ##
+
+- Мы определим несколько правил, в которых зададим условия состояний наблюдаемых систем, при которых мы должны получать оповещения, т.к. заданные условия могут привести к недоступности или неправильной работе нашего приложения.
+
+- Alertmanager - дополнительный компонент для системы мониторинга Prometheus, который отвечает за первичную обработку алертов и дальнейшую отправку оповещений по заданному назначению.
+
+
+
+
+
+
+
+
+
 ## Выполнено задание №16 ##
 ##   Prometheus  ##
 
@@ -9,7 +151,7 @@ eugenesable microservices repository
 • Prometheus: запуск, конфигурация, знакомство с
 Web UI
 • Мониторинг состояния микросервисов
-• Сбор метрик хоста с использованием экспортера  
+• Сбор метрик хоста с использованием экспортера
 
 - Созданы правила файрвола:
 ``` $ gcloud compute firewall-rules create prometheus-default --allow tcp:9090``` - прометеус
@@ -33,11 +175,11 @@ docker run --rm -p 9090:9090 -d --name prometheus prom/prometheus:v2.1.0
 ```
 - Discover ip address: ``` docker-machine ip docker-host```
 - UI become available on ``` http://35.189.233.221:9090/graph```
-Clean Prometheus is already collecting some metrics of its condition. 
+Clean Prometheus is already collecting some metrics of its condition.
 For example:
 ```
 ## Consists of metric name and labels that represented as key/value sets
-✔prometheus_build_info{ 
+✔prometheus_build_info{
   branch="HEAD",
   goversion="go1.9.2",
   instance="localhost:9090",
@@ -105,14 +247,14 @@ volumes:
 ```
 - Run docker-compose.yml:
 ```
-❯ docker-compose up -d                   
+❯ docker-compose up -d
 Creating some_project_post_db_1    ... done
 Creating some_project_comment_1    ... done
 Creating some_project_post_1       ... done
 Creating some_project_prometheus_1 ... done
 Creating some_project_ui_1         ... done
 ```
-- Made some manipulations with stopint services  and watching out the behavior through graphs 
+- Made some manipulations with stopint services  and watching out the behavior through graphs
 
 ## Exporters. Node exporter  ##
 
@@ -167,7 +309,7 @@ docker push $USER_NAME/prometheus
       - back-net
       - front-net
     environment:
-      MONGODB_URI: 'mongodb://post_db:27017'  
+      MONGODB_URI: 'mongodb://post_db:27017'
 ```
 
 
@@ -206,16 +348,16 @@ packer build -var 'project_id=docker-260019' \
     name: docker-ce
 - name: Install Docker-compose
   apt:
-    name: docker-compose    
-``` 
+    name: docker-compose
+```
 - Терраформом поднят stage на основе нового образа
 - Добавлена роль gitlab-compose, которая поднимает gitlab-omnibus
 ```
     - name: Install python for Ansible
       raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
       changed_when: False
-    
-    - name: create gitlab directories 
+
+    - name: create gitlab directories
       file:
         path: "{{ item }}"
         state: directory
@@ -231,14 +373,14 @@ packer build -var 'project_id=docker-260019' \
       template:
         src: templates/docker-compose.yml.j2
         dest: /srv/gitlab
-    
+
     - name: j2 to yml
       command: mv /srv/gitlab/docker-compose.yml.j2 /srv/gitlab/docker-compose.yml
-             
+
     - name: Run docker-compose
       docker_compose:
-        project_src: /srv/gitlab  
-``` 
+        project_src: /srv/gitlab
+```
 + template/docker-compose.yml.j2
 ```
 web:
@@ -258,9 +400,9 @@ web:
     - '/srv/gitlab/data:/var/opt/gitlab'
 
 ```
-- Gitlab поднялся, указан пароль для административного аккаунта (root) 
+- Gitlab поднялся, указан пароль для административного аккаунта (root)
 - Выключена регистрацию новых пользователей
-  
+
   ### Первый проект ###
   • Каждый проект в Gitlab CI принадлежит к группе проектов
 
@@ -303,22 +445,22 @@ deploy_job:
     - echo 'Deploy'
  ```
 
-- В разделе CI/CD появился pipeline в статусе pending / stuck так как нет runner'а  
+- В разделе CI/CD появился pipeline в статусе pending / stuck так как нет runner'а
 
 - На сервере запущен runner NWJxhnTLsahY18yhuWhT
 ```
 docker run -d --name gitlab-runner --restart always \
 -v /srv/gitlab-runner/config:/etc/gitlab-runner \
 -v /var/run/docker.sock:/var/run/docker.sock \
-gitlab/gitlab-runner:latest 
+gitlab/gitlab-runner:latest
 ```
 - Зарегистрирован
 ``` docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false```
 ```
 docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false
 Runtime platform                                    arch=amd64 os=linux pid=12 revision=577f813d version=12.5.0
-Running in system-mode.                            
-                                                   
+Running in system-mode.
+
 Please enter the gitlab-ci coordinator URL (e.g. https://gitlab.com/):
 http://34.76.66.215/
 Please enter the gitlab-ci token for this runner:
@@ -332,7 +474,7 @@ Please enter the executor: virtualbox, kubernetes, custom, docker, parallels, ss
 docker
 Please enter the default Docker image (e.g. ruby:2.6):
 alpine:latest
-Runner registered successfully. Feel free to start it, but if it's running already the config should be automatically reloaded! 
+Runner registered successfully. Feel free to start it, but if it's running already the config should be automatically reloaded!
 ```
 - В настройках появился новый runner, pipeline запустился
 
@@ -406,8 +548,8 @@ end
 - Изменен .gitlab-ci.yml
   - deploy -> review
   - deploy_job -> deploy_dev_job
-  - Добавлено 
-  ```  
+  - Добавлено
+  ```
   environment:
     name: dev
     url: http://dev.example.com
@@ -431,7 +573,7 @@ build_job:
   stage: build
   script:
     - echo 'Building'
-    
+
 test_unit_job:
   stage: test
   services:
@@ -520,8 +662,8 @@ production:
   environment:
     name: production
     url: https://example.com
-```    
-- http://34.76.66.215/homework/example/environments - Добавились окружения prod и stage 
+```
+- http://34.76.66.215/homework/example/environments - Добавились окружения prod и stage
 
 - Добавлена в описание pipeline директиву ``` only ```, которая не позволит нам выкатить на staging и production код,
 не помеченный с помощью тэга в git:
@@ -534,7 +676,7 @@ only:
 
 ### Динамические окружения ###
 
-- Gitlab CI позволяет определить динамические окружения, это мощная функциональность позволяет вам иметь выделенный стенд для, например, каждой feature-ветки в git. Теперь, на каждую ветку в git отличную от master Gitlab CI будет определять новое окружение. 
+- Gitlab CI позволяет определить динамические окружения, это мощная функциональность позволяет вам иметь выделенный стенд для, например, каждой feature-ветки в git. Теперь, на каждую ветку в git отличную от master Gitlab CI будет определять новое окружение.
 ```
  stage: review
  script: echo "Deploy to $CI_ENVIRONMENT_SLUG"
@@ -560,7 +702,7 @@ stages:
 
 variables:
   DATABASE_URL: 'mongodb://mongo/user_posts'
-   
+
 before_script:
   - cd reddit
   - bundle install
@@ -571,19 +713,19 @@ build_job:
     - echo 'Before script override for build_job'
 
   stage: build
-  
+
   variables:
     DOCKER_HOST: tcp://docker:2375/
-    DOCKER_DRIVER: overlay2 
+    DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
-  
+
   services:
-      - docker:18.09-dind   
+      - docker:18.09-dind
   script:
     - curl -sSL https://get.docker.com/ | sh
     - docker info
     - docker login -u $docker_hub_user -p $docker_hub_password
-    - docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0  
+    - docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0
 
 test_unit_job:
   stage: test
@@ -638,7 +780,7 @@ production:
   environment:
     name: production
     url: https://example.com
- ```   
+ ```
 
 
 ## Выполнено задание №14 ##
@@ -651,16 +793,16 @@ production:
 • bridge
 - В качестве образа используем joffotron/docker-net-tools:
 Запущен  none network driver
-```docker run -ti --rm --network none joffotron/docker-net-tools -c ifconfig``` 
+```docker run -ti --rm --network none joffotron/docker-net-tools -c ifconfig```
 ```
-lo        Link encap:Local Loopback  
+lo        Link encap:Local Loopback
           inet addr:127.0.0.1  Mask:255.0.0.0
           UP LOOPBACK RUNNING  MTU:65536  Metric:1
           RX packets:0 errors:0 dropped:0 overruns:0 frame:0
           TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:1000 
+          collisions:0 txqueuelen:1000
           RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
-```          
+```
 - В результате, видим:
 • что внутри контейнера из сетевых интерфейсов существует только loopback.
 • сетевой стек самого контейнера работает (ping localhost), но без возможности контактировать с внешним миром.
@@ -670,94 +812,94 @@ lo        Link encap:Local Loopback
 ```docker run -ti --rm --network host joffotron/docker-net-tools -c ifconfig```
 вывод такой же как и у ```docker-machine ssh docker-host ifconfig```
 ```
-br-3fabcbfeff5d Link encap:Ethernet  HWaddr 02:42:67:28:11:9E  
+br-3fabcbfeff5d Link encap:Ethernet  HWaddr 02:42:67:28:11:9E
           inet addr:172.20.0.1  Bcast:172.20.255.255  Mask:255.255.0.0
           inet6 addr: fe80::42:67ff:fe28:119e%32741/64 Scope:Link
           UP BROADCAST MULTICAST  MTU:1500  Metric:1
           RX packets:0 errors:0 dropped:0 overruns:0 frame:0
           TX packets:14 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:0 (0.0 B)  TX bytes:1076 (1.0 KiB)
 
-br-7a4a39840e4a Link encap:Ethernet  HWaddr 02:42:9C:51:EF:D5  
+br-7a4a39840e4a Link encap:Ethernet  HWaddr 02:42:9C:51:EF:D5
           inet addr:172.19.0.1  Bcast:172.19.255.255  Mask:255.255.0.0
           UP BROADCAST MULTICAST  MTU:1500  Metric:1
           RX packets:0 errors:0 dropped:0 overruns:0 frame:0
           TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
 
-br-a9b719f3a1b0 Link encap:Ethernet  HWaddr 02:42:EB:59:0F:9F  
+br-a9b719f3a1b0 Link encap:Ethernet  HWaddr 02:42:EB:59:0F:9F
           inet addr:172.18.0.1  Bcast:172.18.255.255  Mask:255.255.0.0
           inet6 addr: fe80::42:ebff:fe59:f9f%32741/64 Scope:Link
           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
           RX packets:3968231 errors:0 dropped:0 overruns:0 frame:0
           TX packets:3968449 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:302071587 (288.0 MiB)  TX bytes:701874385 (669.3 MiB)
 
-docker0   Link encap:Ethernet  HWaddr 02:42:CA:DF:D6:99  
+docker0   Link encap:Ethernet  HWaddr 02:42:CA:DF:D6:99
           inet addr:172.17.0.1  Bcast:172.17.255.255  Mask:255.255.0.0
           inet6 addr: fe80::42:caff:fedf:d699%32741/64 Scope:Link
           UP BROADCAST MULTICAST  MTU:1500  Metric:1
           RX packets:38051 errors:0 dropped:0 overruns:0 frame:0
           TX packets:51249 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:3333985 (3.1 MiB)  TX bytes:1322917475 (1.2 GiB)
 
-ens4      Link encap:Ethernet  HWaddr 42:01:0A:84:00:08  
+ens4      Link encap:Ethernet  HWaddr 42:01:0A:84:00:08
           inet addr:10.132.0.8  Bcast:10.132.0.8  Mask:255.255.255.255
           inet6 addr: fe80::4001:aff:fe84:8%32741/64 Scope:Link
           UP BROADCAST RUNNING MULTICAST  MTU:1460  Metric:1
           RX packets:4284958 errors:0 dropped:0 overruns:0 frame:0
           TX packets:4198887 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:1000 
+          collisions:0 txqueuelen:1000
           RX bytes:3660585041 (3.4 GiB)  TX bytes:382770929 (365.0 MiB)
 
-lo        Link encap:Local Loopback  
+lo        Link encap:Local Loopback
           inet addr:127.0.0.1  Mask:255.0.0.0
           inet6 addr: ::1%32741/128 Scope:Host
           UP LOOPBACK RUNNING  MTU:65536  Metric:1
           RX packets:500658 errors:0 dropped:0 overruns:0 frame:0
           TX packets:500658 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:1000 
+          collisions:0 txqueuelen:1000
           RX bytes:67899853 (64.7 MiB)  TX bytes:67899853 (64.7 MiB)
 
-veth6f7e622 Link encap:Ethernet  HWaddr 0A:5B:AE:27:32:78  
+veth6f7e622 Link encap:Ethernet  HWaddr 0A:5B:AE:27:32:78
           inet6 addr: fe80::85b:aeff:fe27:3278%32741/64 Scope:Link
           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
           RX packets:214420 errors:0 dropped:0 overruns:0 frame:0
           TX packets:153348 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:24744112 (23.5 MiB)  TX bytes:17795232 (16.9 MiB)
 
-veth8f35cc4 Link encap:Ethernet  HWaddr 1A:BB:10:37:02:FB  
+veth8f35cc4 Link encap:Ethernet  HWaddr 1A:BB:10:37:02:FB
           inet6 addr: fe80::18bb:10ff:fe37:2fb%32741/64 Scope:Link
           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
           RX packets:321951 errors:0 dropped:0 overruns:0 frame:0
           TX packets:276068 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:34535781 (32.9 MiB)  TX bytes:39449121 (37.6 MiB)
 
-vethade5a64 Link encap:Ethernet  HWaddr DE:95:AF:4F:0D:24  
+vethade5a64 Link encap:Ethernet  HWaddr DE:95:AF:4F:0D:24
           inet6 addr: fe80::dc95:afff:fe4f:d24%32741/64 Scope:Link
           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
           RX packets:688571 errors:0 dropped:0 overruns:0 frame:0
           TX packets:501992 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:75588512 (72.0 MiB)  TX bytes:77316048 (73.7 MiB)
 
-vethb5ba98b Link encap:Ethernet  HWaddr F2:E0:87:20:7F:66  
+vethb5ba98b Link encap:Ethernet  HWaddr F2:E0:87:20:7F:66
           inet6 addr: fe80::f0e0:87ff:fe20:7f66%32741/64 Scope:Link
           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
           RX packets:563640 errors:0 dropped:0 overruns:0 frame:0
           TX packets:857441 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:0 
+          collisions:0 txqueuelen:0
           RX bytes:92064866 (87.7 MiB)  TX bytes:92382542 (88.1 MiB)
-```          
+```
 - При многократном запуске контенера с нгингсом ```docker run --network host -d nginx``` запускается только один, исходя из лога 80 порт уже занят:
-``` 
-docker logs a341992d21d7 
+```
+docker logs a341992d21d7
 2019/12/02 18:56:20 [emerg] 1#1: bind() to 0.0.0.0:80 failed (98: Address already in use)
 nginx: [emerg] bind() to 0.0.0.0:80 failed (98: Address already in use)
 ```
@@ -765,7 +907,7 @@ nginx: [emerg] bind() to 0.0.0.0:80 failed (98: Address already in use)
 
 - ```sudo ln -s /var/run/docker/netns /var/run/netns``` - создан симлинк к сетеым namespace
 - Запущены контейнеры с none и host:
-  - При none появляется неймспейс, но выполнение команды возвращает ошибку, видимо потому что сеть изолирована 
+  - При none появляется неймспейс, но выполнение команды возвращает ошибку, видимо потому что сеть изолирована
 ```
 sudo docker run --network none -d joffotron/docker-net-tools
 086a872fb88a13e9a62a4e2a54a9d14cf467ebeb6b223b4dd0450d44fb7b4306
@@ -808,7 +950,7 @@ RTNETLINK answers: Invalid argument
 
 ### Bridge network driver ###
 
-- Создана bridge-сеть:``` docker network create reddit-bridge --driver bridge ``` 
+- Создана bridge-сеть:``` docker network create reddit-bridge --driver bridge ```
 - Поднято прилажение:
 ```
 docker run -d --network=reddit-bridge mongo:latest
@@ -824,9 +966,9 @@ docker run -d --network=reddit-bridge -p 9292:9292 eugenesable/ui:1.0
 ```
 ```
 docker run -d --network=front_net -p 9292:9292 --name ui eugenesable/ui:1.0
-docker run -d --network=back_net --name comment eugenesable/comment:1.0 
-docker run -d --network=back_net --name post eugenesable/post:1.0 
-docker run -d --network=back_net --name mongo_db  --network-alias=post_db --network-alias=comment_db mongo:latest 
+docker run -d --network=back_net --name comment eugenesable/comment:1.0
+docker run -d --network=back_net --name post eugenesable/post:1.0
+docker run -d --network=back_net --name mongo_db  --network-alias=post_db --network-alias=comment_db mongo:latest
 ```
 - Контейнеры post и comment нужно поместить в обе сети, так как сети изолированы
 Дополнительные сети подключаются командой:
@@ -850,11 +992,11 @@ a9b719f3a1b0        reddit              bridge              local
 - Нашли все бриджы ```ifconfig | grep br ```:
 ```
 ifconfig | grep br
-br-3fabcbfeff5d Link encap:Ethernet  HWaddr 02:42:67:28:11:9e  
-br-7b6e1019f3ce Link encap:Ethernet  HWaddr 02:42:50:e4:c7:0d  
-br-7d9f880bf64b Link encap:Ethernet  HWaddr 02:42:1e:a9:9e:8f  
-br-a9b719f3a1b0 Link encap:Ethernet  HWaddr 02:42:eb:59:0f:9f  
-br-ee07c276cec1 Link encap:Ethernet  HWaddr 02:42:ff:b0:1e:2e 
+br-3fabcbfeff5d Link encap:Ethernet  HWaddr 02:42:67:28:11:9e
+br-7b6e1019f3ce Link encap:Ethernet  HWaddr 02:42:50:e4:c7:0d
+br-7d9f880bf64b Link encap:Ethernet  HWaddr 02:42:1e:a9:9e:8f
+br-a9b719f3a1b0 Link encap:Ethernet  HWaddr 02:42:eb:59:0f:9f
+br-ee07c276cec1 Link encap:Ethernet  HWaddr 02:42:ff:b0:1e:2e
 ```
 - Отображаемые veth-интерфейсы - это те части виртуальных пар интерфейсов, которые лежат в сетевом пространстве хоста и также отображаются в ifconfig. Вторые их части лежат внутри контейнеров.
 ```
@@ -868,17 +1010,17 @@ br-7b6e1019f3ce         8000.024250e4c70d       no              veth7a4d521
 - POSTROUTING. Отмеченные звездочкой правила отвечают за выпуск во внешнюю сеть контейнеров из bridge-сетей.
 ```
 Chain POSTROUTING (policy ACCEPT)
-target     prot opt source               destination         
-MASQUERADE  all  --  10.0.2.0/24          0.0.0.0/0           
-MASQUERADE  all  --  10.0.1.0/24          0.0.0.0/0           
-MASQUERADE  all  --  172.21.0.0/16        0.0.0.0/0           
-MASQUERADE  all  --  172.20.0.0/16        0.0.0.0/0           
-MASQUERADE  all  --  172.18.0.0/16        0.0.0.0/0           
-MASQUERADE  all  --  172.17.0.0/16        0.0.0.0/0           
+target     prot opt source               destination
+MASQUERADE  all  --  10.0.2.0/24          0.0.0.0/0
+MASQUERADE  all  --  10.0.1.0/24          0.0.0.0/0
+MASQUERADE  all  --  172.21.0.0/16        0.0.0.0/0
+MASQUERADE  all  --  172.20.0.0/16        0.0.0.0/0
+MASQUERADE  all  --  172.18.0.0/16        0.0.0.0/0
+MASQUERADE  all  --  172.17.0.0/16        0.0.0.0/0
 MASQUERADE  tcp  --  10.0.1.2             10.0.1.2             tcp dpt:9292
 ```
 - DOCKER.Перенаправление трафика на адреса уже конкретных контейнеров.
-```         
+```
 DNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:9292 to:10.0.1.2:9292
 ```
 - Процесс docker-proxy, который слушает на порту 9292
@@ -928,14 +1070,14 @@ networks:
 ```
 - docker-compose умеет интерполяцию - экспортирована переменную USERNAME:``` export USERNAME=eugenesable ```
 - Запущен проект ``` docker-compose up -d ```
-- Результат: 
+- Результат:
 ```
 $ docker-compose ps
-    Name                  Command             State           Ports         
+    Name                  Command             State           Ports
 ----------------------------------------------------------------------------
-src_comment_1   puma                          Up                            
-src_post_1      python3 post_app.py           Up                            
-src_post_db_1   docker-entrypoint.sh mongod   Up      27017/tcp             
+src_comment_1   puma                          Up
+src_post_1      python3 post_app.py           Up
+src_post_db_1   docker-entrypoint.sh mongod   Up      27017/tcp
 src_ui_1        puma                          Up      0.0.0.0:9292->9292/tcp
 ```
 ### Задание ###
@@ -953,7 +1095,7 @@ services:
         aliases:
           - post_db
           - comment_db
-          
+
   ui:
     build: ./ui
     image: ${USERNAME}/ui:${UI_V}
@@ -963,7 +1105,7 @@ services:
       front-net:
         aliases:
           - ui
-        
+
   post:
     build: ./post-py
     image: ${USERNAME}/post:${POST_V}
@@ -974,7 +1116,7 @@ services:
       front-net:
         aliases:
           - post
-        
+
   comment:
     build: ./comment
     image: ${USERNAME}/comment:${COMMENT_V}
@@ -992,7 +1134,7 @@ volumes:
 networks:
   back-net:
   front-net:
-``` 
+```
 - .env:
 ```
 COMPOSE_PROJECT_NAME=some_project
@@ -1017,11 +1159,11 @@ services:
     volumes:
       - ui:/app
     command: puma --debug -w 2
-  
+
   comment:
     volumes:
       - comment:/app
-  
+
   post:
     volumes:
       - post-py:/app
@@ -1030,7 +1172,7 @@ volumes:
   ui:
   comment:
   post-py:
-    
+
 ```
 
 
@@ -1057,7 +1199,7 @@ ENV POST_DATABASE_HOST post_db
 ENV POST_DATABASE posts
 
 ENTRYPOINT ["python3", "post_app.py"]
-```  
+```
   - comment/Dockerfile:
 ```
 FROM ruby:2.2
@@ -1075,7 +1217,7 @@ ENV COMMENT_DATABASE_HOST comment_db
 ENV COMMENT_DATABASE comments
 
 CMD ["puma"]
-```  
+```
   - ui/Dockerfile
 ```
 FROM ruby:2.2
@@ -1119,7 +1261,7 @@ RUN apk add --no-cache --virtual .build-deps gcc musl-dev \
 && pip install --upgrade pip \
 && pip install -r /app/requirements.txt
 ```
-- Тк же можно использовать alpine-образы 
+- Тк же можно использовать alpine-образы
 
 - Устновка через переменную --env
 ```
@@ -1133,7 +1275,7 @@ docker run -d --network=reddit --env POST_SERVICE_HOST=post_new --env COMMENT_SE
 ```
 - Создание вольюма для хранения данных контенера:
  ```docker volume create reddit_db```
- 
+
 
 
 Предварительно склонирован репозиторий ```https://github.com/Otus-DevOps-2019-08/eugenesable_microservices``` для выполнения заданий.
@@ -1144,14 +1286,14 @@ docker run -d --network=reddit --env POST_SERVICE_HOST=post_new --env COMMENT_SE
 
 - Ветка docker-2
 - Установлен докер для макоси
-```docker version``` – версии docker client и server 
+```docker version``` – версии docker client и server
 ```docker info``` – информация о текущем состоянии docker daemon
 ```docker run hello-world ``` - запуск конейнера из image hello-world
 Вывод консоли:
 ```
 Unable to find image 'hello-world:latest' locally
 latest: Pulling from library/hello-world
-1b930d010525: Pull complete 
+1b930d010525: Pull complete
 Digest: sha256:4df8ca8a7e309c256d60d7971ea14c27672fc0d10c5f303856d7bc48f8cc17ff
 Status: Downloaded newer image for hello-world:latest
 
@@ -1176,7 +1318,7 @@ Share images, automate workflows, and more with a free Docker ID:
 For more examples and ideas, visit:
  https://docs.docker.com/get-started/
 ```
-```docker ps``` - список запущенных контейнеров 
+```docker ps``` - список запущенных контейнеров
 ```docker ps -a``` - cписок всех контейнеров
 ```docker images``` - список образов
 - Docker run каждый раз запускает новый контейнер
@@ -1191,7 +1333,7 @@ docker attach*
 volumes
 - -i – запускает контейнер в foreground режиме (docker attach)
 - -d – запускает контейнер в background режиме
-- -t создает TTY 
+- -t создает TTY
 ```docker exec -it <u_container_id> bash``` - запускает новый процесс внутри контейнера, в данном случае bash
 - Выаод docker images сохранен в docker-monolith/doker-1.log:
 ```
@@ -1204,17 +1346,17 @@ ubuntu                        16.04               5f2bf26e3524        3 weeks ag
 
 - Docker kill & stop:
 • kill сразу посылает SIGKILL
-• stop посылает SIGTERM, и через 10 секунд(настраивается) посылает SIGKILL 
+• stop посылает SIGTERM, и через 10 секунд(настраивается) посылает SIGKILL
 ```
 docker ps -q
 7f8b32a9eac2
 ```
 ```
-docker kill $(docker ps -q) 
+docker kill $(docker ps -q)
 7f8b32a9eac2
 ```
 
-- docker system df 
+- docker system df
 • Отображает сколько дискового пространства занято образами, контейнерами и volume’ами
 • Отображает сколько из них не используется и возможно удалить
 
@@ -1284,7 +1426,7 @@ docker-machine create --driver google \
 ```
 docker-machine ls
 NAME          ACTIVE   DRIVER   STATE     URL                        SWARM   DOCKER     ERRORS
-docker-host   -        google   Running   tcp://34.77.112.197:2376           v19.03.5  
+docker-host   -        google   Running   tcp://34.77.112.197:2376           v19.03.5
 ```
 • переключиличь из локального докера в созданную:```eval $(docker-machine env docker-host)```
 ```docker run --rm -ti tehbilly/htop``` - один процесс htop, запущенный в контейнере
@@ -1346,7 +1488,7 @@ daa395b33172df72031cfee8f8809bb02ea9a1c6c29eeaedaedf4990edbf445d
 ```
 $ docker-machine ls
 NAME          ACTIVE   DRIVER   STATE     URL                        SWARM   DOCKER     ERRORS
-docker-host   *        google   Running   tcp://34.77.112.197:2376           v19.03.5   
+docker-host   *        google   Running   tcp://34.77.112.197:2376           v19.03.5
 ```
 - Создано FW правило, разрешающее tcp-трафик по потру 9292:
 ```
@@ -1361,7 +1503,7 @@ $ gcloud compute firewall-rules create reddit-app \
  ## Docker hub ###
 
 Docker Hub - это облачный registry сервис от компании Docker. В него можно выгружать и
-загружать из него докер образы. Docker по умолчанию скачивает образы из докер хаба. 
+загружать из него докер образы. Docker по умолчанию скачивает образы из докер хаба.
 
 ```docker login``` - авторизация в docker hub
 
@@ -1374,19 +1516,19 @@ Docker Hub - это облачный registry сервис от компании
 $ docker run --name reddit -d -p 9292:9292 eugenesable/otus-reddit:1.0
 Unable to find image 'eugenesable/otus-reddit:1.0' locally
 1.0: Pulling from eugenesable/otus-reddit
-e80174c8b43b: Pull complete 
-d1072db285cc: Pull complete 
-858453671e67: Pull complete 
-3d07b1124f98: Pull complete 
-92b4d8ecd544: Pull complete 
-1e752b2e9ffa: Pull complete 
-455afc3eb6db: Pull complete 
-6c031030b6ff: Pull complete 
-fe1e27c5f0d9: Pull complete 
-c273c6f30d33: Pull complete 
-f88a90fd918f: Pull complete 
-47a7574ab7a2: Pull complete 
-ba535e957533: Pull complete 
+e80174c8b43b: Pull complete
+d1072db285cc: Pull complete
+858453671e67: Pull complete
+3d07b1124f98: Pull complete
+92b4d8ecd544: Pull complete
+1e752b2e9ffa: Pull complete
+455afc3eb6db: Pull complete
+6c031030b6ff: Pull complete
+fe1e27c5f0d9: Pull complete
+c273c6f30d33: Pull complete
+f88a90fd918f: Pull complete
+47a7574ab7a2: Pull complete
+ba535e957533: Pull complete
 Digest: sha256:7ab7334e87d65ebec9d449be2aae9db38d73882ae80bde2bd1fb63956b84d377
 Status: Downloaded newer image for eugenesable/otus-reddit:1.0
 0c5ce4b427f446f04b1b98374b399cadb71ec7876e1a7cc291b03ec4eaf0ab1b
@@ -1428,7 +1570,7 @@ exit
 ## Задание со * ##
 
 - Добавлеа папка infra/, в которую добавлены packer/, ansible/, terraform/
- 
+
 ## Packer ##
 - Добавлен провиженер с установкой докера:
 ```
@@ -1541,10 +1683,10 @@ groups:
 - Добален ПБ docker.yml, в котором доставляются некоторые модули и запускается контейнер с приложением из докер хаба:
 ```
 ---
-- name: install missed modules & pack reddit-app into docker 
+- name: install missed modules & pack reddit-app into docker
   hosts: all
   become: true
-  
+
   tasks:
     - debug: msg="This is in {{ env }} environment"
 
