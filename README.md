@@ -1,6 +1,12 @@
 # eugenesable_microservices
 eugenesable microservices repository
 
+## Homework №19 ##
+
+- Ветка kubernetes-1
+- Использовать решено https://github.com/express42/kubernetes-the-hard-way/
+
+
 ## Homework №18 ##
 
 - Ветка logging-1
