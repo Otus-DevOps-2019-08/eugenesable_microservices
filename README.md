@@ -1,6 +1,237 @@
 # eugenesable_microservices
 eugenesable microservices repository
 
+## Homework №18 ##
+
+- Ветка logging-1
+
+План
+
+- Сбор неструктурированных логов
+- Визуализация логов
+- Сбор структурированных логов
+- Распределенная трасировка
+
+- Код микросервисов обновился для добавления функционала логирования.
+- Образы пересобраны:
+```
+/src/ui $ bash docker_build.sh && docker push $USER_NAME/ui
+/src/post-py $ bash docker_build.sh && docker push $USER_NAME/post
+/src/comment $ bash docker_build.sh && docker push $USER_NAME/comment
+```
+- Подготовлено окружение:
+```
+$ export GOOGLE_PROJECT=docker-260019
+$ docker-machine create --driver google \
+    --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+    --google-machine-type n1-standard-1 \
+    --google-open-port 5601/tcp \
+    --google-open-port 9292/tcp \
+    --google-open-port 9411/tcp \
+    logging
+
+# configure local env
+$ eval $(docker-machine env logging)
+
+# узнаем IP адрес
+$ docker-machine ip logging
+```
+## Логирование Docker контейнеров посредством Elastick Stack ##
+
+Как упоминалось на лекции хранить все логи стоит централизованно: на одном (нескольких) серверах. В этом ДЗ мы рассмотрим пример системы централизованного логирования на примере Elastic стека (ранее известного как ELK): который включает в себя 3 осовных компонента:
+- ElasticSearch (TSDB и поисковый движок для хранения данных)
+- Logstash (для агрегации и трансформации данных)
+- Kibana (для визуализации)
+Однако для агрегации логов вместо Logstash мы будем использовать Fluentd, таким образом получая еще одно популярное сочетание этих инструментов, получившее название EFK
+- Добавлен docker-compose-logging.yml:
+```version: '3'
+services:
+  fluentd:
+    image: ${USERNAME}/fluentd
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
+  elasticsearch:
+    image: elasticsearch:7.4.0
+    expose:
+      - 9200
+    ports:
+      - "9200:9200"
+
+  kibana:
+    image: kibana:7.4.0
+    ports:
+      - "5601:5601"
+```
+- Созданы правило ФВЖ:
+```
+gcloud compute firewall-rules create fluentd-default --allow tcp:24224
+gcloud compute firewall-rules create fluentd-default --allow udp:24224
+gcloud compute firewall-rules create elasticsearch-default --allow tcp:9200
+gcloud compute firewall-rules create kibana-default --allow tcp:5601
+```
+ ## Fluentd ##
+- Инструмент, который может использоваться для отправки, агрегации и преобразования лог-сообщений. Мы будем использовать Fluentd для агрегации (сбора в одной месте) и парсинга логов сервисов нашего приложения.
+- Добавлен logging/fluentd/Dockerfile:
+```
+FROM fluent/fluentd:v0.12
+RUN gem install fluent-plugin-elasticsearch --no-rdoc --no-ri --version 1.9.5
+RUN gem install fluent-plugin-grok-parser --no-rdoc --no-ri --version 1.0.0
+ADD fluent.conf /fluentd/etc
+```
+- Добавлен logging/fluentd/fluent.conf :
+```
+<source>
+  @type forward         # Используем in_forward плагин для приема логов
+                        # https://docs.fluentd.org/v0.12/articles/in_forward
+  port 24224
+  bind 0.0.0.0
+</source>
+<match *.**>
+  @type copy            # Используем copy плагин, чтобы переправить все входящие логи в ElasticSearch, а также вывести в output
+                        # https://docs.fluentd.org/v0.12/articles/out_copy
+  <store>
+    @type elasticsearch
+    host elasticsearch
+    port 9200
+    logstash_format true
+    logstash_prefix fluentd
+    logstash_dateformat %Y%m%d
+    include_tag_key true
+    type_name access_log
+    tag_key @log_name
+    flush_interval 1s
+  </store>
+  <store>
+    @type stdout
+  </store>
+</match>
+```
+- Собран образ: ```docker build -t $USER_NAME/fluentd .```
+- Логи должны иметь заданную (единую) структуру и содержать необходимую для нормальной эксплуатации данного сервиса информацию о его работе
+- Лог-сообщения также должны иметь понятный для выбранной системы логирования формат, чтобы избежать ненужной траты ресурсов на преобразование данных в нужный вид. Структурированные логи мы рассмотрим на примере сервиса post
+
+- Запущены сервисы приложения: ```docker-compose up -d```
+- Просмотр логов: ```docker-compose logs -f post```
+- В консоли появились логи:
+```
+post_1     | {"event": "post_create", "level": "info", "message": "Successfully created a new post", "params": {"link": "http://qwer2", "title": "123"}, "request_id": "7786f4ce-69b6-4dd1-8bcf-33887c4cb23e", "service": "post", "timestamp": "2019-12-30 18:22:07"}
+```
+Каждое событие, связанное с работой нашего приложения логируется в JSON формате и имеет нужную нам структуру:
+ - тип события (event),
+ - сообщение (message),
+ - переданные функции параметры (params),
+ - имя сервиса (service) и др.
+
+Как отмечалось на лекции, по умолчанию Docker контейнерами используется json-file драйвер для логирования информации, которая пишется сервисом внутри контейнера в stdout (и stderr). Для отправки логов во Fluentd используем docker драйвер fluentd
+
+- Определен драйвер логирования  для сервиса post:
+```
+
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: service.post
+```
+## Kibana ##
+- Инструмент для визуализации и анализа логов от компании Elastic. Откроем WEB-интерфейс Kibana для просмотра собранных в
+ElasticSearch логов Post-сервиса (kibana слушает на порту 5601)
+- Кибана поднялась со скрипом:
+```
+  vm.max_map_count on the linux box kernel setting needs to be set to at least 262144 -
+  $ sudo sysctl -w vm.max_map_count=262144
+```
+```
+the default discovery settings are unsuitable for production use; at least one of [discovery.seed_hosts, discovery.seed_providers, cluster.initial_master_nodes] must be configured
+
+environment:
+      - discovery.type=single-node
+```
+- Создан индекс
+
+## Фильтры ##
+Добавим фильтр для парсинга json логов, приходящих от post сервиса, в конфиг fluentd
+```
+<filter service.post>
+  @type parser
+  format json
+  key_name log
+</filter>
+```
+- Взглянем на одно из сообщений и увидим, что вместо одного поля log появилось множество полей с нужной нам информацией
+
+## Неструктурированные логи ##
+
+Неструктурированные логи отличаются отсутствием четкой структуры данных. Также часто бывает, что формат лог-сообщений не подстроен под систему централизованного логирования, что существенно увеличивает затраты вычислительных и временных ресурсов на обработку данных и выделение нужной информации. На примере сервиса ui мы рассмотрим пример логов с неудобным форматом сообщений.
+docker-compose.yml:
+```
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: localhost:24224
+        tag: service.ui
+```
+Когда приложение или сервис не пишет структурированные логи, приходится использовать старые добрые регулярные выражения для их парсинга
+в /docker/fluentd/fluent.conf
+```
+<filter service.ui>
+  @type parser
+  format /\[(?<time>[^\]]*)\]  (?<level>\S+) (?<user>\S+)[\W]*service=(?<service>\S+)[\W]*event=(?<event>\S+)[\W]*(?:path=(?<path>\S+)[\W]*)?request_id=(?<request_id>\S+)[\W]*(?:remote_addr=(?<remote_addr>\S+)[\W]*)?(?:method= (?<method>\S+)[\W]*)?(?:response_status=(?<response_status>\S+)[\W]*)?(?:message='(?<message>[^\']*)[\W]*)?/
+  key_name log
+</filter>
+```
+Созданные регулярки могут иметь ошибки, их сложно менять и невозможно читать. Для облегчения задачи парсинга вместо стандартных регулярок можно использовать grok-шаблоны. По-сути grok’и - это именованные шаблоны регулярных выражений (очень похоже на функции). Можно использовать готовый regexp, просто сославшись на него как на функцию docker/fluentd/fluent.conf
+```
+<filter service.ui>
+  @type parser
+  key_name log
+  format grok
+  grok_pattern %{RUBY_LOGGER}
+</filter>
+
+<filter service.ui>
+  @type parser
+  format grok
+  grok_pattern service=%{WORD:service} \| event=%{WORD:event} \| request_id=%{GREEDYDATA:request_id} \| message='%{GREEDYDATA:message}'
+  key_name message
+  reserve_data true
+</filter>
+```
+
+## Распределенный трейсинг. Zipkin ##
+
+Добавьте в compose-файл для сервисов логирования сервис распределенного трейсинга Zipkin в одно сети
+docker/docker-compose-logging.yml
+```
+  zipkin:
+    image: openzipkin/zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - back-net
+      - front-net
+```
+- Правило ФВ: ```gcloud compute firewall-rules create zipkin-default --allow tcp:9411```
+
+Правим наш docker/docker-compose-logging.yml Добавьте для каждого сервиса поддержку ENV переменных и задайте параметризованный параметр ZIPKIN_ENABLED
+```
+environment:
+- ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
+```
+- env. ```ZIPKIN_ENABLED=true```
+
+
+
+
+
+
+
+
+
+
+
 ## Homework #17 ##
 
 План
@@ -135,10 +366,79 @@ static_configs:
 
 - Alertmanager - дополнительный компонент для системы мониторинга Prometheus, который отвечает за первичную обработку алертов и дальнейшую отправку оповещений по заданному назначению.
 
+- Добавлен Dockerfile:
+```
+FROM prom/alertmanager:v0.14.0
+ADD config.yml /etc/alertmanager/
+```
+- Добавим интеграцию со слаком в config.yml:
+```
+global:
+  slack_api_url: 'https://hooks.slack.com/services/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'
 
+route:
+  receiver: 'slack-notifications'
 
+receivers:
+- name: 'slack-notifications'
+  slack_configs:
+  - channel: '#evgeniy-sobolev'
+```
+- Собран образ:```docker build -t $USER_NAME/alertmanager .```
+- Обновлен docker-compose-monitoring.yml:
+```
+alertmanager:
+  image: ${USERNAME}/alertmanager
+  command:
+    - '--config.file=/etc/alertmanager/config.yml'
+  ports:
+    - '9093:9093'
+  networks:
+    - front-net
+    - back-net
+```
+- Создано правило ФВ:
+```
+gcloud compute firewall-rules create alrtmngr-default --allow tcp:9093
+```
+- Добавлен alerts.yml, в котором определим условия при которых должен срабатывать алерт и посылаться Alertmanager-у. Мы создадим простой алерт, который будет срабатывать в ситуации, когда одна из наблюдаемых систем (endpoint) недоступна для сбора метрик (в этом случае метрика up с лейблом instance равным имени данного эндпоинта будет равна нулю). Выполните запрос по имени метрики up в веб интерфейсе Prometheus, чтобы убедиться, что сейчас все эндпоинты доступны для сбора метрик::
+```
+groups:
+  - name: alert.rules
+    rules:
+    - alert: InstanceDown
+      expr: up == 0
+      for: 1m
+      labels:
+        severity: page
+      annotations:
+        description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute'
+        summary: 'Instance {{ $labels.instance }} down'
+```
+- Изменен prometheus/Dockerfile:
+``` ADD alerts.yml /etc/prometheus/ ```
+- Изменен prometheus/prometheus.yml:
+```
+rule_files:
+  - "alerts.yml"
 
-
+alerting:
+  alertmanagers:
+  - scheme: http
+    static_configs:
+    - targets:
+      - "alertmanager:9093"
+```
+- ```docker-compose stop post``` Срабатывает алерт, пришло в слак сообщение
+- Все запушено:
+```
+docker push $USER_NAME/ui
+docker push $USER_NAME/comment
+docker push $USER_NAME/post
+docker push $USER_NAME/prometheus
+docker push $USER_NAME/alertmanager
+docker push $USER_NAME/alertmanager
+```
 
 
 
