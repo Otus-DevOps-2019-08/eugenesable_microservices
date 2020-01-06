@@ -37,7 +37,7 @@ deployment.apps/mongo-deployment created
 deployment.apps/post-deployment created
 deployment.apps/ui-deployment created
 ```
-```kubectl get deployments --all-namespaces```
+```kubectl get pods --all-namespaces```
 ```
 NAME                                 READY   STATUS    RESTARTS   AGE
 busybox                              1/1     Running   0          13m
