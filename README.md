@@ -24,10 +24,10 @@ eugenesable microservices repository
 ## Диплой RedditApp ##
 ```
 {
-kubectl apply -f comment-depoyment.yml
-kubectl apply -f mongo-depoyment.yml
-kubectl apply -f post-depoyment.yml
-kubectl apply -f ui-depoyment.yml
+kubectl apply -f comment-deployment.yml
+kubectl apply -f mongo-deployment.yml
+kubectl apply -f post-deployment.yml
+kubectl apply -f ui-deployment.yml
 }
 ```
 output:
