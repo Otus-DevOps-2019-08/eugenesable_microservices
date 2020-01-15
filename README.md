@@ -1,6 +1,69 @@
 # eugenesable_microservices
 eugenesable microservices repository
 
+## Homework №19 ##
+
+## Цели ##
+- Разобрать на практике все компоненты Kubernetes, развернуть их вручную используя The Hard Way;
+- Ознакомиться с описанием основных примитивов нашего приложения и его дальнейшим запуском в Kubernetes.
+
+- Ветка kubernetes-1
+
+## Создание примитивов ##
+Опишем приложение в контексте Kubernetes с помощью manifest-ов в YAML-формате. Основным примитивом будет Deployment.
+Основные задачи сущности Deployment:
+- Создание Replication Controller-а (следит, чтобы число запущенных Pod-ов соответствовало описанному);
+- Ведение истории версий запущенных Pod-ов (для различных стратегий деплоя, для возможностей отката);
+- Описание процесса деплоя (стратегия, параметры стратегий).
+По ходу курса эти манифесты будут обновляться, а также появляться новые. Текущие файлы нужны для создания структуры и проверки работоспособности kubernetes-кластера.
+
+- Добавлены deployment-манифесты приложения reddit
+
+- Использовать решено https://github.com/express42/kubernetes-the-hard-way/
+
+## Диплой RedditApp ##
+```
+{
+kubectl apply -f comment-deployment.yml
+kubectl apply -f mongo-deployment.yml
+kubectl apply -f post-deployment.yml
+kubectl apply -f ui-deployment.yml
+}
+```
+output:
+```
+deployment.apps/comment-deployment created
+deployment.apps/mongo-deployment created
+deployment.apps/post-deployment created
+deployment.apps/ui-deployment created
+```
+```kubectl get pods --all-namespaces```
+```
+NAME                                 READY   STATUS    RESTARTS   AGE
+busybox                              1/1     Running   0          13m
+comment-deployment-96698b6d4-g922b   1/1     Running   0          47s
+mongo-deployment-86d49445c4-qk4s4    1/1     Running   0          47s
+nginx-554b9c67f9-qjhvz               1/1     Running   0          10m
+post-deployment-698c97f6d4-jg629     1/1     Running   0          47s
+ui-deployment-76d4cf986d-vgcdq       1/1     Running   0          46s
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Homework №18 ##
 
 - Ветка logging-1
