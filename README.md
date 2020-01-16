@@ -129,7 +129,7 @@ CURRENT   NAME                      CLUSTER                   AUTHINFO   NAMESPA
 - ui-deployment.yml:
 ```
 ---
-  apiVersion: apps/v1beta2
+  apiVersion: apps/v1
   kind: Deployment
   metadata:
     name: ui
@@ -198,7 +198,7 @@ UI работает, подключим остальные компоненты
 comment-deployment.yml:
 ```
 ---
-apiVersion: apps/v1beta2
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: comment
@@ -253,7 +253,7 @@ spec:
 - К mongodb примонтируем стандартный Volume для хранения данных вне контейнера
 ```
 ---
-  apiVersion: apps/v1beta2
+  apiVersion: apps/v1
   kind: Deployment
   metadata:
     name: mongo
@@ -408,7 +408,7 @@ spec:
 - Так же обновим mongodb-deployment.yml:
 ```
 ---
-apiVersion: apps/v1beta2
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mongo
@@ -614,10 +614,95 @@ service/ui created
 ```
 ``` kubectl apply -f ui-deployment.yml -n dev```
 
-- Проварка: ```kubectl apply -f ui-deployment.yml -n dev```
+- Проварка: ```minikube service ui -n dev```
 
+## Google Kubernetes Engine ##
 
+- В GCP создан кластер Кубернетеса
+- Подключаемся к кластеру из локалки:```gcloud container clusters get-credentials standard-cluster-1 --zone us-central1-a --project docker-260019```
+- В ~/.kube/config добавились новые user, cluster, context:
+```
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURDekNDQWZPZ0F3SUJBZ0lRZWhuTDdCeW1yN2Fhb0JPaWFpVUpGakFOQmdrcWhraUc5dzBCQVFzRkFEQXYKTVMwd0$
+    server: https://104.197.198.129
+  name: gke_docker-260019_us-central1-a_standard-cluster-1
+...
+- context:
+    cluster: gke_docker-260019_us-central1-a_standard-cluster-1
+    user: gke_docker-260019_us-central1-a_standard-cluster-1
+  name: gke_docker-260019_us-central1-a_standard-cluster-1
+...
+- name: gke_docker-260019_us-central1-a_standard-cluster-1
+  user:
+    auth-provider:
+      config:
+        cmd-args: config config-helper --format=json
+        cmd-path: /Users/eugenesobolev/otus/google-cloud-sdk/bin/gcloud
+        expiry-key: '{.credential.token_expiry}'
+        token-key: '{.credential.access_token}'
+      name: gcp
+```
+- Текущий контекст:
+```
+❯ kubectl config current-context
+gke_docker-260019_us-central1-a_standard-cluster-1
+```
 
+Запуск приложения:
+
+- Создан namespace:
+```
+kubectl apply -f dev-namespace.yml
+namespace/dev created
+```
+- Задиплоены все компоненты:
+```
+❯ kubectl apply -f ./ -n dev
+deployment.apps/comment created
+service/comment-db created
+service/comment created
+namespace/dev unchanged
+deployment.apps/mongo created
+service/mongodb created
+deployment.apps/post created
+service/post-db created
+service/post created
+deployment.apps/ui created
+service/ui created
+```
+- Правило ФВ:
+```
+gcloud compute firewall-rules create k8s-reddit --network default --action=ALLOW --direction INGRESS --source-ranges 0.0.0.0/0 --rules tcp:30000-32767
+
+Creating firewall...⠶Created [https://www.googleapis.com/compute/v1/projects/docker-260019/global/firewalls/k8s-reddit].
+Creating firewall...done.
+NAME        NETWORK  DIRECTION  PRIORITY  ALLOW            DENY  DISABLED
+k8s-reddit  default  INGRESS    1000      tcp:30000-32767        False
+```
+- Узнаем внешний ip из информации о нодах:
+```
+kubectl get nodes -o wide
+
+NAME                                                STATUS   ROLES    AGE   VERSION           INTERNAL-IP   EXTERNAL-IP     OS-IMAGE                             KERNEL-VERSION   CONTAINER-RUNTIME
+gke-standard-cluster-1-default-pool-84397315-2h1n   Ready    <none>   24m   v1.13.11-gke.14   10.128.0.5    35.202.152.85   Container-Optimized OS from Google   4.14.138+        docker://18.9.7
+gke-standard-cluster-1-default-pool-84397315-pm8k   Ready    <none>   24m   v1.13.11-gke.14   10.128.0.6    35.239.94.17    Container-Optimized OS from Google   4.14.138+        docker://18.9.7
+```
+- Узнаем на какой порт повешен ui:
+```
+❯ kubectl describe service ui -n dev | grep NodePort
+Type:                     NodePort
+NodePort:                 <unset>  31498/TCP
+```
+- Итого: ```http://35.202.152.85:31498/```
+- Добавлен дашборд через гуи, но не работает http://localhost:8001/ui, так как деприкейтед
+
+- Можно поставить дашборд извне:```kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta6/aio/deploy/recommended.yaml```
+
+- У dashboard не хватает прав, чтобы посмотреть на кластер. Его не пускает ```RBAC``` (ролевая система контроля доступа). Нужно нашему ```Service Account``` назначить роль с достаточными правами на просмотр информации о кластере
+```
+❯ kubectl create clusterrolebinding kubernetes-dashboard  --clusterrole=cluster-admin --serviceaccount=kube-system:kubernetes-dashboard
+clusterrolebinding.rbac.authorization.k8s.io/kubernetes-dashboard created
+```
 
 ## Homework №19 ##
 
@@ -888,16 +973,6 @@ environment:
 - ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
 ```
 - env. ```ZIPKIN_ENABLED=true```
-
-
-
-
-
-
-
-
-
-
 
 ## Homework #17 ##
 
